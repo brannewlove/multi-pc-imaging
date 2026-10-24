@@ -1,0 +1,132 @@
+[
+  {
+    "id": "policy-nvme-1tb-single",
+    "name": "1TB NVMe 단일 드라이브 (C드라이브 단독 구성)",
+    "description": "1TB급 NVMe SSD 1개 탑재 모델용 기본 GPT 파티션",
+    "conditions": {
+      "modelPattern": "*",
+      "diskCountMin": 1,
+      "diskCountMax": 99,
+      "targetDiskCriteria": "NVME_FIRST",
+      "targetDiskIndex": 0,
+      "minCapacityGb": 900.0,
+      "maxCapacityGb": 1050.0
+    },
+    "autoApprove": true,
+    "partitionScheme": "GPT",
+    "layout": [
+      {
+        "type": "EFI",
+        "sizeMb": 300,
+        "fs": "FAT32",
+        "label": "System",
+        "letter": "S"
+      },
+      {
+        "type": "MSR",
+        "sizeMb": 16
+      },
+      {
+        "type": "OS",
+        "sizeMb": "REMAINDER",
+        "fs": "NTFS",
+        "label": "Windows",
+        "letter": "W"
+      }
+    ],
+    "postInstall": {
+      "runBcdBoot": true,
+      "bootLetter": "S:",
+      "osLetter": "W:\\Windows"
+    }
+  },
+  {
+    "id": "policy-nvme-512gb-split",
+    "name": "512GB NVMe 분할 구성 (C: 200GB / D: 데이터 잔여)",
+    "description": "512GB급 NVMe SSD를 C/D 드라이브로 자동 분할",
+    "conditions": {
+      "modelPattern": "*",
+      "diskCountMin": 1,
+      "diskCountMax": 99,
+      "targetDiskCriteria": "NVME_FIRST",
+      "targetDiskIndex": 0,
+      "minCapacityGb": 450.0,
+      "maxCapacityGb": 530.0
+    },
+    "autoApprove": false,
+    "partitionScheme": "GPT",
+    "layout": [
+      {
+        "type": "EFI",
+        "sizeMb": 300,
+        "fs": "FAT32",
+        "label": "System",
+        "letter": "S"
+      },
+      {
+        "type": "MSR",
+        "sizeMb": 16
+      },
+      {
+        "type": "OS",
+        "sizeMb": 204800,
+        "fs": "NTFS",
+        "label": "Windows",
+        "letter": "W"
+      },
+      {
+        "type": "DATA",
+        "sizeMb": "REMAINDER",
+        "fs": "NTFS",
+        "label": "Data",
+        "letter": "D"
+      }
+    ],
+    "postInstall": {
+      "runBcdBoot": true,
+      "bootLetter": "S:",
+      "osLetter": "W:\\Windows"
+    }
+  },
+  {
+    "id": "policy-sata-256gb-single",
+    "name": "256GB SSD 기본 구성",
+    "description": "256GB급 SSD 전용 기본 전체 할당",
+    "conditions": {
+      "modelPattern": "*",
+      "diskCountMin": 1,
+      "diskCountMax": 99,
+      "targetDiskCriteria": "INDEX_0",
+      "targetDiskIndex": 0,
+      "minCapacityGb": 220.0,
+      "maxCapacityGb": 265.0
+    },
+    "autoApprove": true,
+    "partitionScheme": "GPT",
+    "layout": [
+      {
+        "type": "EFI",
+        "sizeMb": 300,
+        "fs": "FAT32",
+        "label": "System",
+        "letter": "S"
+      },
+      {
+        "type": "MSR",
+        "sizeMb": 16
+      },
+      {
+        "type": "OS",
+        "sizeMb": "REMAINDER",
+        "fs": "NTFS",
+        "label": "Windows",
+        "letter": "W"
+      }
+    ],
+    "postInstall": {
+      "runBcdBoot": true,
+      "bootLetter": "S:",
+      "osLetter": "W:\\Windows"
+    }
+  }
+]

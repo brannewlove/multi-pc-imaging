@@ -1,0 +1,122 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MasterClientProtocol",
+  "description": "다중 PC 이미지 더빙 시스템 마스터-클라이언트 통신 프로토콜 명세",
+  "messageTypes": {
+    "CLIENT_DISCOVERY": {
+      "sender": "Client",
+      "transport": "UDP Broadcast (Port 39200)",
+      "payload": {
+        "macAddress": "00:1A:2B:3C:4D:5E",
+        "clientIp": "192.168.1.105"
+      }
+    },
+    "MASTER_DISCOVERY_ACK": {
+      "sender": "Master",
+      "transport": "UDP Unicast (Port 39200)",
+      "payload": {
+        "masterIp": "192.168.1.10",
+        "tcpPort": 39201,
+        "wsPort": 39202,
+        "httpPort": 39203
+      }
+    },
+    "CLIENT_REGISTER": {
+      "sender": "Client",
+      "transport": "TCP / WebSocket",
+      "payload": {
+        "system": {
+          "manufacturer": "SAMSUNG ELECTRONICS CO., LTD.",
+          "modelName": "NT950QED-K71A",
+          "serialNumber": "ZD8791ZTA00012B",
+          "uuid": "4C4C4544-0046-4E10-8054-C3C04F343232",
+          "biosVersion": "P04RFD",
+          "isUefi": true
+        },
+        "network": {
+          "primaryMac": "00:1A:2B:3C:4D:5E",
+          "ipAddress": "192.168.1.105"
+        },
+        "disks": [
+          {
+            "diskIndex": 0,
+            "friendlyName": "Samsung SSD 980 PRO 1TB",
+            "busType": "NVMe",
+            "mediaType": "SSD",
+            "sizeBytes": 1000204886016,
+            "sizeGb": 931.51,
+            "partitionStyle": "GPT",
+            "partitions": [
+              {
+                "partitionNumber": 1,
+                "type": "IFS (NTFS)",
+                "sizeBytes": 1000204886016
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "MASTER_APPROVE_DEPLOY": {
+      "sender": "Master",
+      "transport": "TCP / WebSocket",
+      "payload": {
+        "sessionId": "sess-20261024-001",
+        "targetDiskIndex": 0,
+        "partitionPolicyId": "policy-uefi-standard-1tb",
+        "partitionCommands": [
+          "select disk 0",
+          "clean",
+          "convert gpt",
+          "create partition efi size=300",
+          "format quick fs=fat32 label=\"System\"",
+          "assign letter=S",
+          "create partition msr size=16",
+          "create partition primary",
+          "format quick fs=ntfs label=\"Windows\"",
+          "assign letter=W"
+        ],
+        "imageInfo": {
+          "imageName": "Win11_23H2_Samsung_NT950QED.wim",
+          "imageIndex": 1,
+          "sourceType": "HTTP_STREAM",
+          "sourceUrl": "http://192.168.1.10:39203/images/Win11_23H2_Samsung_NT950QED.wim",
+          "targetDriveLetter": "W:",
+          "bootDriveLetter": "S:"
+        },
+        "postAction": "REBOOT"
+      }
+    },
+    "CLIENT_PROGRESS": {
+      "sender": "Client",
+      "transport": "TCP / WebSocket",
+      "payload": {
+        "sessionId": "sess-20261024-001",
+        "status": "IMAGING",
+        "step": "Applying WIM Image (1/3)",
+        "percent": 45.2,
+        "speedMbps": 850.5,
+        "bytesProcessed": 9663676416,
+        "bytesTotal": 21474836480,
+        "elapsedSeconds": 92,
+        "estimatedRemainingSeconds": 112,
+        "detailMessage": "Applying metadata and file cluster table..."
+      }
+    },
+    "CLIENT_RESULT": {
+      "sender": "Client",
+      "transport": "TCP / WebSocket",
+      "payload": {
+        "sessionId": "sess-20261024-001",
+        "status": "SUCCESS",
+        "totalDurationSeconds": 215,
+        "errorMessage": "",
+        "logSummary": [
+          "Disk 0 partitioned (GPT EFI:300MB, MSR:16MB, OS:Rem)",
+          "WIM applied successfully in 189s",
+          "BCDBoot configured on S:\\ and W:\\Windows"
+        ]
+      }
+    }
+  }
+}

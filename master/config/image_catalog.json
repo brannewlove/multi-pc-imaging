@@ -1,0 +1,35 @@
+[
+  {
+    "imageId": "img-samsung-nt950",
+    "name": "삼성 갤럭시북 Pro (NT950QED) 표준 이미지",
+    "modelPattern": "NT950QED*",
+    "manufacturer": "SAMSUNG*",
+    "imageFileName": "Win11_23H2_Samsung_NT950.wim",
+    "imageIndex": 1,
+    "sizeBytes": 16106127360,
+    "osVersion": "Windows 11 Pro 23H2 x64",
+    "description": "삼성 기본 OEM 드라이버 및 칩셋 패키지 통합"
+  },
+  {
+    "imageId": "img-lenovo-t14",
+    "name": "레노버 씽크패드 T14 Gen 3 표준 이미지",
+    "modelPattern": "21AH*|ThinkPad T14 Gen 3*",
+    "manufacturer": "LENOVO*",
+    "imageFileName": "Win11_23H2_ThinkPad_T14G3.wim",
+    "imageIndex": 1,
+    "sizeBytes": 17179869184,
+    "osVersion": "Windows 11 Pro 23H2 x64",
+    "description": "Lenovo Commercial Vantage 및 무선랜/썬더볼트 드라이버 통합"
+  },
+  {
+    "imageId": "img-generic-w11",
+    "name": "범용 윈도우 11 Pro 기본 이미지 (미지정 모델 공용)",
+    "modelPattern": "*",
+    "manufacturer": "*",
+    "imageFileName": "Win11_23H2_Universal_Clean.wim",
+    "imageIndex": 1,
+    "sizeBytes": 12884901888,
+    "osVersion": "Windows 11 Pro 23H2 x64",
+    "description": "드라이버 미통합 순정 이미지 (Windows Update 자동 설치용)"
+  }
+]
