@@ -24,7 +24,7 @@ public:
     void Close();
     bool IsConnected() const;
 
-    bool SendMessage(const std::string& jsonString);
+    bool SendJsonMessage(const std::string& jsonString);
     bool ReadMessage(std::string& outJsonString, int timeoutMs = 0);
 
 private:

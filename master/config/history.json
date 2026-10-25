@@ -50,5 +50,70 @@
     "durationSeconds": 20,
     "errorMessage": "",
     "completedAt": "2026-10-24T14:26:15.131Z"
+  },
+  {
+    "id": "HIST-1792908969558",
+    "sessionId": "PC-BE77AEEE",
+    "modelName": "Virtual Machine",
+    "serialNumber": "9523-6565-3038-8505-1757-9015-76",
+    "macAddress": "00:15:5D:00:04:05",
+    "policyName": "1TB NVMe 단일 드라이브 (C드라이브 단독 구성)",
+    "imageName": "Win11_23H2_Universal_Clean.wim",
+    "status": "FAILED",
+    "durationSeconds": 0,
+    "errorMessage": "DISM failed with exit code: 3",
+    "completedAt": "2026-10-25T06:16:09.558Z"
+  },
+  {
+    "id": "HIST-1792908980744",
+    "sessionId": "PC-0F0DF419",
+    "modelName": "Virtual Machine",
+    "serialNumber": "9523-6565-3038-8505-1757-9015-76",
+    "macAddress": "00:15:5D:00:04:05",
+    "policyName": "1TB NVMe 단일 드라이브 (C드라이브 단독 구성)",
+    "imageName": "Win11_23H2_Universal_Clean.wim",
+    "status": "FAILED",
+    "durationSeconds": 0,
+    "errorMessage": "DISM failed with exit code: 3",
+    "completedAt": "2026-10-25T06:16:20.744Z"
+  },
+  {
+    "id": "HIST-1792925085929",
+    "sessionId": "PC-0AC3E8C7",
+    "modelName": "Galaxy Book3 Pro 360 (NT960QFG)",
+    "serialNumber": "SN-SAM-960Q-9912",
+    "macAddress": "00:E0:4C:81:22:1A",
+    "policyName": "1TB NVMe 단일 드라이브 (C드라이브 단독 구성)",
+    "imageName": "Win11_23H2_Samsung_NT950.wim",
+    "status": "SUCCESS",
+    "durationSeconds": 20,
+    "errorMessage": "",
+    "completedAt": "2026-10-25T10:44:45.929Z"
+  },
+  {
+    "id": "HIST-1792925089916",
+    "sessionId": "PC-ED4D526E",
+    "modelName": "Latitude 5430",
+    "serialNumber": "SN-DLL-5430-8821",
+    "macAddress": "34:E6:D7:99:A1:02",
+    "policyName": "256GB SSD 기본 구성",
+    "imageName": "Win11_23H2_Dell_Latitude.wim",
+    "status": "SUCCESS",
+    "durationSeconds": 20,
+    "errorMessage": "",
+    "completedAt": "2026-10-25T10:44:49.916Z"
+  },
+  {
+    "id": "HIST-1792925091862",
+    "sessionId": "PC-91342044",
+    "modelName": "LG gram 16 (16Z90Q-GA76K)",
+    "serialNumber": "SN-LGE-16Z9-1144",
+    "macAddress": "A0:C5:89:4F:2E:8D",
+    "policyName": "1TB NVMe 단일 드라이브 (C드라이브 단독 구성)",
+    "imageName": "Win11_23H2_Universal_Clean.wim",
+    "status": "SUCCESS",
+    "durationSeconds": 20,
+    "errorMessage": "",
+    "completedAt": "2026-10-25T10:44:51.862Z"
   }
 ]

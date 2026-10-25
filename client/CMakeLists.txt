@@ -22,6 +22,10 @@ set(SOURCES
 
 add_executable(PeImagingAgent ${SOURCES})
 
+if (NOT MSVC)
+    target_link_options(PeImagingAgent PRIVATE -static -static-libgcc -static-libstdc++)
+endif()
+
 target_link_libraries(PeImagingAgent PRIVATE
     ws2_32
     iphlpapi

@@ -961,3 +961,309 @@ body {
 .hidden {
     display: none !important;
 }
+
+/* 추가: 마스터 이미지 및 선택 규칙 관리 모달 스타일 */
+.modal-xl {
+    max-width: 1020px;
+    width: 95%;
+}
+
+.settings-section {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    margin-bottom: 18px;
+}
+
+.section-title-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.section-title-bar h4 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #fff;
+    margin: 0;
+}
+
+.section-desc {
+    font-size: 0.84rem;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+    line-height: 1.5;
+}
+
+.form-row-grid {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.flex-1 { flex: 1; min-width: 140px; }
+.flex-2 { flex: 2; min-width: 220px; }
+
+.form-group label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+
+.form-group input, .form-group select {
+    width: 100%;
+    padding: 10px 14px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: #fff;
+    font-size: 0.88rem;
+    transition: var(--transition-fast);
+}
+
+.form-group input:focus, .form-group select:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.2);
+}
+
+.form-actions-align {
+    margin-bottom: 0;
+}
+
+/* 스캔된 WIM 파일 박스 */
+.scanned-files-box {
+    margin-top: 14px;
+    padding: 12px 14px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px dashed rgba(255, 255, 255, 0.14);
+    border-radius: var(--radius-sm);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 48px;
+    align-items: center;
+}
+
+.scanned-files-empty {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+}
+
+.scanned-file-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(16, 185, 129, 0.12);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.25);
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-family: var(--font-mono);
+}
+
+.scanned-file-pill .file-size {
+    color: var(--text-muted);
+    font-size: 0.74rem;
+}
+
+/* 규칙 카드 */
+.rules-list-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.image-rule-card {
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    transition: var(--transition-fast);
+}
+
+.image-rule-card:hover {
+    border-color: rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.image-rule-card.disabled-rule {
+    opacity: 0.55;
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.rule-top-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.rule-title-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.rule-priority-badge {
+    background: var(--accent-gradient);
+    color: #fff;
+    font-size: 0.74rem;
+    font-weight: 800;
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    letter-spacing: 0.5px;
+}
+
+.rule-priority-fallback {
+    background: rgba(255, 255, 255, 0.16);
+    color: #e2e8f0;
+}
+
+.rule-name-text {
+    font-weight: 700;
+    color: #fff;
+    font-size: 0.95rem;
+}
+
+.rule-action-buttons {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.rule-details-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 14px;
+    background: rgba(0, 0, 0, 0.28);
+    padding: 12px 14px;
+    border-radius: var(--radius-sm);
+    margin-top: 8px;
+}
+
+@media (max-width: 768px) {
+    .rule-details-grid {
+        grid-template-columns: 1fr;
+    }
+    .form-row-grid {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}
+
+.rule-condition-list, .rule-target-image {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.detail-label {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.detail-value {
+    font-size: 0.84rem;
+    color: #f1f5f9;
+}
+
+.target-wim-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(14, 165, 233, 0.15);
+    color: #38bdf8;
+    padding: 4px 10px;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 0.82rem;
+}
+
+/* 시뮬레이터 */
+.simulator-box {
+    background: rgba(15, 23, 42, 0.5);
+    border: 1px solid rgba(14, 165, 233, 0.2);
+}
+
+.sim-test-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.sim-input-col {
+    flex: 1;
+    min-width: 140px;
+}
+
+.sim-input-col.btn-col {
+    flex: 0 0 auto;
+}
+
+.sim-input-col label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+    font-weight: 600;
+}
+
+.sim-input-col input {
+    width: 100%;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: #fff;
+    font-size: 0.84rem;
+}
+
+.sim-test-result {
+    padding: 12px 14px;
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 0.86rem;
+    color: #94a3b8;
+}
+
+.btn-xs {
+    padding: 3px 8px;
+    font-size: 0.72rem;
+    border-radius: 4px;
+}
+
+.btn-outline-primary {
+    background: transparent;
+    color: #38bdf8;
+    border: 1px solid rgba(14, 165, 233, 0.4);
+}
+
+.btn-outline-primary:hover {
+    background: rgba(14, 165, 233, 0.15);
+}
+
+.btn-danger {
+    background: rgba(239, 68, 68, 0.12);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.btn-danger:hover {
+    background: #ef4444;
+    color: #fff;
+}
+

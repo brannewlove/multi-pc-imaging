@@ -63,6 +63,7 @@ dism /Unmount-Wim /MountDir:"C:\mount" /Commit
 
 ---
 
+
 ## 🚀 빠른 시작 가이드
 
 ### 1. 마스터 관리 서버 실행
@@ -72,16 +73,62 @@ node server.js
 ```
 - 웹 대시보드 접속: **`http://localhost:39202`**
 
-### 2. 다중 PC 시뮬레이션 테스트
+---
+
+### 2. 마스터 이미지 폴더 지정 및 선택 규칙 설정 방법
+
+#### ① 마스터 이미지 저장 폴더 지정
+1. 웹 대시보드 우측 상단의 **[📀 마스터 이미지 및 선택 규칙]** 버튼 클릭
+2. **마스터 로컬 이미지 폴더 경로**: `.wim` / `.esd` 파일들이 위치한 디렉터리 경로 입력 (예: `D:\Images` 또는 `C:\images`)
+3. **WinPE 클라이언트 접근 공유 경로**: WinPE에서 접근할 SMB 네트워크 경로 입력 (예: `\\192.168.1.50\images`)
+4. **전송 방식 선택**: `로컬/네트워크 공유` (권장) 또는 `HTTP 스트리밍`
+5. **[폴더 저장 & WIM 스캔]** 버튼을 누르면 해당 폴더 내의 WIM 파일 목록과 용량이 실시간 칩 배지로 표시됩니다.
+
+#### ② 기종별 자동 이미지 선택 규칙 (Matching Rules) 구성
+- 타깃 PC가 WinPE로 부팅되면 등록된 규칙 목록을 **우선순위(Priority #1, #2, ...) 순서대로 대조**하여 적합한 WIM 이미지를 자동 할당합니다.
+- **판별 조건**:
+  - **제조사 (Manufacturer)**: 와일드카드(`*`) 및 다중 조건(`|`) 지원 (예: `SAMSUNG*`, `LENOVO*`, `Dell*|Alienware*`)
+  - **모델명 패턴 (Model Pattern)**: 정규식/와일드카드 지원 (예: `NT950*|Galaxy*|Book*`, `ThinkPad*|T14*`)
+  - **스토리지 용량 범위 (GB)**: 최소/최대 디스크 용량 (예: `200` ~ `2000` GB)
+  - **스토리지 인터페이스**: `NVMe`, `SATA`, `ANY`
+- **조작 기능**:
+  - `▲` / `▼`: 규칙 평가 우선순위 변경
+  - `✅ 활성` / `⚪ 비활성`: 규칙 사용 여부 즉시 토글
+  - `수정` / `삭제`: 매칭 조건 및 배포 WIM 이미지 파일명 수정
+  - `+ 새 선택 규칙 추가`: 새로운 모델에 대한 WIM 규칙 추가
+- **기본 대체 규칙 (Fallback Rule)**:
+  - 어떤 전용 규칙에도 부합하지 않는 기종이 부팅되었을 때 공용으로 배포할 범용 순정 WIM 이미지(`Win11_23H2_Universal_Clean.wim`)가 최하단 우선순위로 자동 작동합니다.
+
+#### ③ 실시간 규칙 매칭 시뮬레이터 (Simulator)
+- 모달 하단 **[🧪 3. 규칙 매칭 실시간 테스트]** 영역에서 제조사, 모델명, SSD 용량을 입력하고 **[매칭 테스트]**를 클릭하면 해당 사양에 어떤 규칙과 어떤 WIM 파일이 선택되는지 즉시 검증할 수 있습니다.
+
+---
+
+### 3. 다중 PC 시뮬레이션 테스트
 ```powershell
 cd simulator
 node simulate_clients.js
 ```
+- 다양한 제조사(삼성 갤럭시북, 레노버 씽크패드, 델 래티튜드, LG 그램 등)가 동시 접속하며 지정된 규칙에 따라 알맞은 WIM 이미지가 자동 배포되는 전 과정을 웹 대시보드에서 실시간 모니터링할 수 있습니다.
 
-### 3. 클라이언트 C++ 에이전트 빌드 (Visual Studio)
+---
+
+### 4. 클라이언트 C++ 에이전트 빌드 (WinPE 용)
+
+#### Visual Studio MSVC 빌드:
 ```powershell
 cd client
 mkdir build && cd build
 cmake .. -G "Visual Studio 17 2022" -A x64
 cmake --build . --config Release
 ```
+
+#### LLVM-MinGW (GCC/Clang) 정적 링크 빌드:
+```powershell
+cd client
+mkdir build && cd build
+cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+cmake --build .
+```
+- 빌드 결과물: **`client/build/PeImagingAgent.exe`** (외부 런타임 DLL 없이 순수 Windows 기본 API만으로 정적 링크 구동)
+

@@ -1,4 +1,6 @@
 @echo off
+:: UTF-8 코드페이지 설정 (콘솔 한글 깨짐 방지)
+chcp 65001 > nul
 title WinPE Multi-PC Imaging Client Initializer
 echo ========================================================
 echo   Initializing WinPE Network and Environment...

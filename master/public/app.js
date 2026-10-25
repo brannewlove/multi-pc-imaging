@@ -7,6 +7,12 @@ let partitionPolicies = [];
 let imageCatalog = [];
 let deployHistory = [];
 let globalAutoApprove = true;
+let serverConfig = {
+    masterImageDir: "C:\\images",
+    networkSharePath: "\\\\127.0.0.1\\images",
+    clientAccessMethod: "LOCAL_OR_SHARE"
+};
+let scannedImages = { totalFiles: 0, totalSizeGb: "0.00", files: [] };
 
 let ws = null;
 let currentTab = 'LIVE'; // 'LIVE' or 'HISTORY'
@@ -45,6 +51,29 @@ const elBtnOpenPolicies = document.getElementById('btnOpenPolicies');
 const elBtnClosePolicies = document.getElementById('btnClosePolicies');
 const elBtnClosePoliciesBottom = document.getElementById('btnClosePoliciesBottom');
 const elPolicyListContainer = document.getElementById('policyListContainer');
+
+// 마스터 이미지 및 선택 규칙 모달 DOM
+const elModalImageRules = document.getElementById('modalImageRules');
+const elBtnOpenImageRules = document.getElementById('btnOpenImageRules');
+const elBtnCloseImageRules = document.getElementById('btnCloseImageRules');
+const elBtnCloseImageRulesBottom = document.getElementById('btnCloseImageRulesBottom');
+
+const elInputMasterImageDir = document.getElementById('inputMasterImageDir');
+const elInputNetworkSharePath = document.getElementById('inputNetworkSharePath');
+const elSelectAccessMethod = document.getElementById('selectAccessMethod');
+const elBtnSaveAndScanFolder = document.getElementById('btnSaveAndScanFolder');
+const elBadgeScannedCount = document.getElementById('badgeScannedCount');
+const elScannedFilesContainer = document.getElementById('scannedFilesContainer');
+
+const elImageRulesListContainer = document.getElementById('imageRulesListContainer');
+const elBtnAddNewImageRule = document.getElementById('btnAddNewImageRule');
+const elBtnSaveAllImageRules = document.getElementById('btnSaveAllImageRules');
+
+const elSimTestMfg = document.getElementById('simTestMfg');
+const elSimTestModel = document.getElementById('simTestModel');
+const elSimTestDisk = document.getElementById('simTestDisk');
+const elBtnRunMatchTest = document.getElementById('btnRunMatchTest');
+const elSimTestResultBox = document.getElementById('simTestResultBox');
 
 const elModalLog = document.getElementById('modalLogViewer');
 const elBtnCloseLog = document.getElementById('btnCloseLogViewer');
@@ -88,6 +117,9 @@ function handleWsMessage(event, data) {
         imageCatalog = data.imageCatalog || [];
         deployHistory = data.deployHistory || [];
         globalAutoApprove = data.globalAutoApprove;
+        if (data.serverConfig) serverConfig = data.serverConfig;
+        if (data.scannedImages) scannedImages = data.scannedImages;
+
         updateAutoApproveUI();
 
         clientsMap.clear();
@@ -123,6 +155,13 @@ function handleWsMessage(event, data) {
     } else if (event === 'POLICIES_UPDATED') {
         partitionPolicies = data.partitionPolicies || [];
         renderPoliciesList();
+    } else if (event === 'SERVER_CONFIG_UPDATED') {
+        if (data.serverConfig) serverConfig = data.serverConfig;
+        if (data.scan) scannedImages = data.scan;
+        renderImageRulesModalUI();
+    } else if (event === 'IMAGE_RULES_UPDATED') {
+        if (data.imageCatalog) imageCatalog = data.imageCatalog;
+        renderImageRulesList();
     }
 }
 
@@ -148,7 +187,6 @@ function updateMetrics() {
         else if (c.status === 'FAILED') failed++;
     });
 
-    // 배포 이력 카운트도 반영
     const histSuccess = deployHistory.filter(h => h.status === 'SUCCESS').length;
     const histFailed = deployHistory.filter(h => h.status === 'FAILED').length;
 
@@ -177,14 +215,11 @@ function updateAutoApproveUI() {
 // 3. 클라이언트 카드 렌더링
 function renderClientsGrid() {
     const clients = Array.from(clientsMap.values()).filter(c => {
-        // 검색 필터
         const q = searchFilter.toLowerCase();
         const m = (c.system?.modelName || '').toLowerCase();
         const s = (c.system?.serialNumber || '').toLowerCase();
         const mac = (c.network?.primaryMac || '').toLowerCase();
         const matchSearch = !q || m.includes(q) || s.includes(q) || mac.includes(q);
-
-        // 상태 필터
         const matchStatus = (statusFilter === 'ALL') || (c.status === statusFilter);
         return matchSearch && matchStatus;
     });
@@ -223,9 +258,9 @@ function createClientCardElement(c) {
         : '장착된 디스크 없음';
 
     const policyName = c.matchedPolicy?.name || '맞춤 권장양식 자동 매칭됨';
-    const imageName = c.matchedImage?.imageFileName || '표준 WIM 이미지';
+    const imageRuleName = c.matchedImage?.name || '자동 매칭 이미지';
+    const imageName = c.matchedImage?.targetImage?.imageFileName || c.matchedImage?.imageFileName || 'Win11_Universal.wim';
 
-    // 상태 배지 텍스트
     let statusText = '승인 대기';
     let badgeClass = 'badge-ready';
     if (c.status === 'IMAGING') {
@@ -280,9 +315,11 @@ function createClientCardElement(c) {
                 <div class="part-segment part-msr" title="MSR 예약 파티션 (16MB)">MSR</div>
                 <div class="part-segment part-os" title="Windows OS 파티션 (주 파티션)">Windows C: (주 파티션)</div>
             </div>
-            <div class="plan-row" style="margin-top:4px;">
-                <span class="plan-label">할당 WIM 이미지:</span>
-                <span class="plan-value" style="font-size:0.78rem;">${escapeHtml(imageName)}</span>
+            <div class="plan-row" style="margin-top:6px; align-items:center;">
+                <span class="plan-label">매칭 WIM 이미지:</span>
+                <span class="target-wim-badge" title="${escapeHtml(imageRuleName)}">
+                    📀 ${escapeHtml(imageName)}
+                </span>
             </div>
         </div>
 
@@ -441,7 +478,334 @@ function renderPoliciesList() {
     });
 }
 
-// 7. 로그 뷰어 모달
+// --------------------------------------------------------------------------
+// 7. 마스터 이미지 폴더 및 선택 규칙 모달 관리 로직
+// --------------------------------------------------------------------------
+function renderImageRulesModalUI() {
+    elInputMasterImageDir.value = serverConfig.masterImageDir || 'C:\\images';
+    elInputNetworkSharePath.value = serverConfig.networkSharePath || '\\\\127.0.0.1\\images';
+    elSelectAccessMethod.value = serverConfig.clientAccessMethod || 'LOCAL_OR_SHARE';
+
+    renderScannedFilesPills();
+    renderImageRulesList();
+}
+
+function renderScannedFilesPills() {
+    const files = scannedImages.files || [];
+    elBadgeScannedCount.textContent = `${files.length}개 WIM 감지됨 (${scannedImages.totalSizeGb || '0.00'} GB)`;
+
+    if (files.length === 0) {
+        elScannedFilesContainer.innerHTML = `
+            <div class="scanned-files-empty">
+                ${scannedImages.error ? `<span style="color:#f87171;">⚠️ ${escapeHtml(scannedImages.error)}</span>` : '지정된 폴더에 .wim 또는 .esd 파일이 없습니다. 경로를 확인하고 스캔을 실행하세요.'}
+            </div>
+        `;
+        return;
+    }
+
+    elScannedFilesContainer.innerHTML = files.map(f => `
+        <div class="scanned-file-pill" title="경로: ${escapeHtml(f.fullPath)}">
+            <span>📀 ${escapeHtml(f.fileName)}</span>
+            <span class="file-size">${f.sizeGb} GB</span>
+        </div>
+    `).join('');
+}
+
+function renderImageRulesList() {
+    elImageRulesListContainer.innerHTML = '';
+
+    if (!imageCatalog || imageCatalog.length === 0) {
+        elImageRulesListContainer.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">등록된 선택 규칙이 없습니다.</div>';
+        return;
+    }
+
+    // 우선순위 정렬
+    const sorted = [...imageCatalog].sort((a, b) => (a.priority || 999) - (b.priority || 999));
+
+    sorted.forEach((rule, idx) => {
+        const card = document.createElement('div');
+        card.className = `image-rule-card ${rule.enabled === false ? 'disabled-rule' : ''}`;
+
+        const cond = rule.conditions || {};
+        const target = rule.targetImage || {};
+        const isFallback = rule.isFallback === true;
+
+        card.innerHTML = `
+            <div class="rule-top-bar">
+                <div class="rule-title-box">
+                    <span class="rule-priority-badge ${isFallback ? 'rule-priority-fallback' : ''}">
+                        ${isFallback ? '기본 대체 (Fallback)' : `우선순위 #${rule.priority || (idx + 1)}`}
+                    </span>
+                    <span class="rule-name-text">${escapeHtml(rule.name)}</span>
+                </div>
+                <div class="rule-action-buttons">
+                    ${!isFallback && idx > 0 ? `
+                        <button class="btn btn-secondary btn-xs" onclick="moveRulePriority('${rule.id}', -1)" title="우선순위 올림">▲</button>
+                    ` : ''}
+                    ${!isFallback && idx < sorted.length - 2 ? `
+                        <button class="btn btn-secondary btn-xs" onclick="moveRulePriority('${rule.id}', 1)" title="우선순위 내림">▼</button>
+                    ` : ''}
+                    <button class="btn btn-secondary btn-xs" onclick="toggleRuleEnabled('${rule.id}')">
+                        ${rule.enabled !== false ? '✅ 활성' : '⚪ 비활성'}
+                    </button>
+                    <button class="btn btn-secondary btn-xs" onclick="editImageRule('${rule.id}')">수정</button>
+                    ${!isFallback ? `
+                        <button class="btn btn-danger btn-xs" onclick="deleteImageRule('${rule.id}')">삭제</button>
+                    ` : ''}
+                </div>
+            </div>
+
+            <div class="rule-details-grid">
+                <div class="rule-condition-list">
+                    <span class="detail-label">매칭 판별 조건 (Hardware Match)</span>
+                    <div style="font-size:0.82rem;line-height:1.6;color:#cbd5e1;">
+                        • 제조사: <strong>${escapeHtml(cond.manufacturer || '*')}</strong><br>
+                        • 모델명 패턴: <strong>${escapeHtml(cond.modelPattern || '*')}</strong><br>
+                        • 스토리지 용량: <strong>${cond.minDiskGb || 0}GB ~ ${cond.maxDiskGb || 9999}GB</strong> (${cond.targetDiskType || '모든 타입'})
+                    </div>
+                </div>
+                <div class="rule-target-image">
+                    <span class="detail-label">적용 마스터 이미지 (Assigned WIM)</span>
+                    <div style="margin-top:2px;">
+                        <span class="target-wim-badge">📀 ${escapeHtml(target.imageFileName || rule.imageFileName || '미지정.wim')}</span>
+                        <span style="font-size:0.75rem;color:var(--text-muted);margin-left:4px;">(Index: ${target.imageIndex || 1})</span>
+                    </div>
+                    <p style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;">${escapeHtml(target.description || rule.description || '')}</p>
+                </div>
+            </div>
+        `;
+        elImageRulesListContainer.appendChild(card);
+    });
+}
+
+// 폴더 저장 및 스캔 API 호출
+async function saveAndScanMasterFolder() {
+    const dir = elInputMasterImageDir.value.trim();
+    const share = elInputNetworkSharePath.value.trim();
+    const method = elSelectAccessMethod.value;
+
+    if (!dir) {
+        alert('마스터 이미지 폴더 경로를 입력하세요.');
+        return;
+    }
+
+    try {
+        elBtnSaveAndScanFolder.disabled = true;
+        elBtnSaveAndScanFolder.innerHTML = '스캔 중...';
+
+        const res = await fetch('/api/images/folder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                masterImageDir: dir,
+                networkSharePath: share,
+                clientAccessMethod: method
+            })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+            serverConfig = data.serverConfig;
+            scannedImages = data.scan;
+            renderScannedFilesPills();
+            if (scannedImages.files.length > 0) {
+                alert(`폴더가 저장되었습니다. 총 ${scannedImages.files.length}개의 WIM 파일(${scannedImages.totalSizeGb} GB)을 발견했습니다.`);
+            } else if (scannedImages.error) {
+                alert(`경고: ${scannedImages.error}`);
+            } else {
+                alert('폴더 설정이 저장되었으나, .wim 파일이 발견되지 않았습니다.');
+            }
+        } else {
+            alert('폴더 저장 실패: ' + (data.error || '알 수 없는 오류'));
+        }
+    } catch (e) {
+        alert('요청 오류: ' + e.message);
+    } finally {
+        elBtnSaveAndScanFolder.disabled = false;
+        elBtnSaveAndScanFolder.innerHTML = `
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            폴더 저장 & WIM 스캔
+        `;
+    }
+}
+
+// 규칙 우선순위 변경
+function moveRulePriority(ruleId, direction) {
+    const nonFallback = imageCatalog.filter(r => !r.isFallback).sort((a,b) => (a.priority||999) - (b.priority||999));
+    const idx = nonFallback.findIndex(r => r.id === ruleId);
+    if (idx < 0) return;
+
+    const targetIdx = idx + direction;
+    if (targetIdx < 0 || targetIdx >= nonFallback.length) return;
+
+    // 스왑
+    const temp = nonFallback[idx];
+    nonFallback[idx] = nonFallback[targetIdx];
+    nonFallback[targetIdx] = temp;
+
+    // 우선순위 재정렬 부여 (1, 2, 3...)
+    nonFallback.forEach((r, i) => r.priority = i + 1);
+
+    renderImageRulesList();
+}
+
+function toggleRuleEnabled(ruleId) {
+    const r = imageCatalog.find(rule => rule.id === ruleId);
+    if (r) {
+        r.enabled = !(r.enabled !== false);
+        renderImageRulesList();
+    }
+}
+
+function deleteImageRule(ruleId) {
+    if (!confirm('이 선택 규칙을 삭제하시겠습니까?')) return;
+    imageCatalog = imageCatalog.filter(r => r.id !== ruleId);
+    renderImageRulesList();
+}
+
+function editImageRule(ruleId) {
+    const r = imageCatalog.find(rule => rule.id === ruleId);
+    if (!r) return;
+
+    const newName = prompt('규칙 이름을 입력하세요:', r.name);
+    if (newName === null) return;
+    r.name = newName;
+
+    const newMfg = prompt('매칭할 제조사 패턴을 입력하세요 (와일드카드 * 지원, 예: SAMSUNG*):', r.conditions?.manufacturer || '*');
+    if (newMfg !== null) {
+        if (!r.conditions) r.conditions = {};
+        r.conditions.manufacturer = newMfg;
+    }
+
+    const newModel = prompt('매칭할 모델명 패턴을 입력하세요 (예: NT950*|Galaxy*):', r.conditions?.modelPattern || '*');
+    if (newModel !== null) {
+        r.conditions.modelPattern = newModel;
+    }
+
+    const newWim = prompt('적용할 WIM 파일명을 입력하세요 (예: Win11_23H2_Pro.wim):', r.targetImage?.imageFileName || r.imageFileName || 'install.wim');
+    if (newWim !== null) {
+        if (!r.targetImage) r.targetImage = {};
+        r.targetImage.imageFileName = newWim;
+    }
+
+    renderImageRulesList();
+}
+
+function addNewImageRule() {
+    const name = prompt('새 선택 규칙 이름을 입력하세요:', '신규 기종 이미지 규칙');
+    if (!name) return;
+
+    const mfg = prompt('제조사 패턴 (예: SAMSUNG*, LENOVO*, DELL*, *):', '*') || '*';
+    const model = prompt('모델명 패턴 (예: NT950*, ThinkPad*, Latitude*, *):', '*') || '*';
+    
+    // 스캔된 파일이 있으면 첫 번째 파일을 기본값으로 제안
+    const defaultWim = (scannedImages.files && scannedImages.files.length > 0) ? scannedImages.files[0].fileName : 'Win11_Custom.wim';
+    const wim = prompt('적용할 WIM 파일명을 입력하세요:', defaultWim) || defaultWim;
+
+    const newRule = {
+        id: 'rule-' + Date.now(),
+        name: name,
+        enabled: true,
+        priority: imageCatalog.filter(r => !r.isFallback).length + 1,
+        conditions: {
+            manufacturer: mfg,
+            modelPattern: model,
+            minDiskGb: 100,
+            maxDiskGb: 4000,
+            targetDiskType: 'ANY'
+        },
+        targetImage: {
+            imageFileName: wim,
+            imageIndex: 1,
+            osVersion: 'Windows 11 x64',
+            description: '관리자 신규 등록 이미지'
+        },
+        isFallback: false
+    };
+
+    // fallback 바로 앞에 삽입
+    const fallbackIdx = imageCatalog.findIndex(r => r.isFallback);
+    if (fallbackIdx >= 0) {
+        imageCatalog.splice(fallbackIdx, 0, newRule);
+    } else {
+        imageCatalog.push(newRule);
+    }
+
+    renderImageRulesList();
+}
+
+async function saveAllImageRulesToServer() {
+    try {
+        elBtnSaveAllImageRules.disabled = true;
+        elBtnSaveAllImageRules.textContent = '저장 중...';
+
+        const res = await fetch('/api/images/rules', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rules: imageCatalog })
+        });
+        const data = await res.json();
+        if (data.success) {
+            imageCatalog = data.rules;
+            alert('이미지 선택 규칙이 성공적으로 저장되었습니다. 대기 중인 PC들에 새 규칙이 즉시 적용되었습니다.');
+            elModalImageRules.classList.add('hidden');
+        } else {
+            alert('저장 실패: ' + (data.error || '오류 발생'));
+        }
+    } catch (e) {
+        alert('서버 저장 요청 오류: ' + e.message);
+    } finally {
+        elBtnSaveAllImageRules.disabled = false;
+        elBtnSaveAllImageRules.textContent = '선택 규칙 전체 저장';
+    }
+}
+
+// 실시간 규칙 매칭 시뮬레이터 테스트
+async function runMatchSimulationTest() {
+    const mfg = elSimTestMfg.value.trim();
+    const model = elSimTestModel.value.trim();
+    const disk = elSimTestDisk.value.trim();
+
+    try {
+        elBtnRunMatchTest.disabled = true;
+        elBtnRunMatchTest.textContent = '테스트 중...';
+
+        const res = await fetch('/api/images/test-match', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                manufacturer: mfg,
+                modelName: model,
+                diskGb: disk
+            })
+        });
+
+        const data = await res.json();
+        if (data.success && data.matchedRule) {
+            const rule = data.matchedRule;
+            const wimName = rule.targetImage?.imageFileName || rule.imageFileName || 'N/A';
+            elSimTestResultBox.innerHTML = `
+                <div style="color:#34d399;font-weight:700;margin-bottom:4px;">
+                    ✅ 매칭 성공: [${escapeHtml(rule.name)}]
+                </div>
+                <div style="font-size:0.84rem;color:#f1f5f9;">
+                    • 최종 적용 WIM 이미지: <span class="target-wim-badge" style="display:inline-block;">📀 ${escapeHtml(wimName)}</span> (인덱스: ${rule.targetImage?.imageIndex || 1})<br>
+                    • 규칙 우선순위: <strong>#${rule.priority || 'Fallback'}</strong> (${rule.isFallback ? '기본 대체 규칙' : '조건 정밀 일치'})<br>
+                    • 이미지 설명: ${escapeHtml(rule.targetImage?.description || rule.description || '없음')}
+                </div>
+            `;
+        } else {
+            elSimTestResultBox.innerHTML = '<span style="color:#f87171;">일치하는 규칙이 없습니다.</span>';
+        }
+    } catch (e) {
+        elSimTestResultBox.innerHTML = `<span style="color:#f87171;">테스트 오류: ${escapeHtml(e.message)}</span>`;
+    } finally {
+        elBtnRunMatchTest.disabled = false;
+        elBtnRunMatchTest.textContent = '매칭 테스트';
+    }
+}
+
+// 8. 로그 뷰어 모달
 function openClientLog(sessionId) {
     const client = clientsMap.get(sessionId);
     elLogTitle.textContent = `[${sessionId}] 상세 작업 로그`;
@@ -452,7 +816,8 @@ function openClientLog(sessionId) {
         `[INFO] Primary MAC: ${client?.network?.primaryMac} | Assigned IP: ${client?.network?.ipAddress}`,
         `[INFO] Disk 0: ${client?.disks?.[0]?.friendlyName} [Capacity: ${client?.disks?.[0]?.sizeGb?.toFixed(1)} GB]`,
         `[INFO] Matched Policy: ${client?.matchedPolicy?.name}`,
-        `[INFO] Assigned Image: ${client?.matchedImage?.imageFileName}`,
+        `[INFO] Matched Image Rule: ${client?.matchedImage?.name}`,
+        `[INFO] Assigned Image WIM: ${client?.matchedImage?.targetImage?.imageFileName || client?.matchedImage?.imageFileName}`,
         `[STATUS] Current Stage: ${client?.progress?.step || client?.status}`,
         `[PERCENT] Progress: ${client?.progress?.percent || 0}%`,
         `[LOG] BCDBoot configuration target: S:\\EFI, W:\\Windows`
@@ -478,7 +843,7 @@ function escapeHtml(str) {
         .replace(/"/g, '&quot;');
 }
 
-// 8. 이벤트 바인딩
+// 9. 이벤트 바인딩
 elBtnToggleAutoApprove.addEventListener('click', toggleAutoApprove);
 elBtnBatchApprove.addEventListener('click', batchApproveAll);
 
@@ -509,13 +874,27 @@ elSelectStatus.addEventListener('change', (e) => {
     renderClientsGrid();
 });
 
+// 파티션 모달
 elBtnOpenPolicies.addEventListener('click', () => {
     renderPoliciesList();
     elModalPolicies.classList.remove('hidden');
 });
-
 elBtnClosePolicies.addEventListener('click', () => elModalPolicies.classList.add('hidden'));
 elBtnClosePoliciesBottom.addEventListener('click', () => elModalPolicies.classList.add('hidden'));
+
+// 마스터 이미지 및 선택 규칙 모달
+elBtnOpenImageRules.addEventListener('click', () => {
+    renderImageRulesModalUI();
+    elModalImageRules.classList.remove('hidden');
+});
+elBtnCloseImageRules.addEventListener('click', () => elModalImageRules.classList.add('hidden'));
+elBtnCloseImageRulesBottom.addEventListener('click', () => elModalImageRules.classList.add('hidden'));
+elBtnSaveAndScanFolder.addEventListener('click', saveAndScanMasterFolder);
+elBtnAddNewImageRule.addEventListener('click', addNewImageRule);
+elBtnSaveAllImageRules.addEventListener('click', saveAllImageRulesToServer);
+elBtnRunMatchTest.addEventListener('click', runMatchSimulationTest);
+
+// 로그 모달
 elBtnCloseLog.addEventListener('click', () => elModalLog.classList.add('hidden'));
 elBtnCloseLogBottom.addEventListener('click', () => elModalLog.classList.add('hidden'));
 

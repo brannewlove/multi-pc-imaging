@@ -1,2 +1,9 @@
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
+.vscode/
+client/build/CMakeFiles/
+client/build/Makefile
+client/build/cmake_install.cmake
+client/build/CMakeCache.txt
+sample_images/
+

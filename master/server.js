@@ -13,6 +13,7 @@ const PORT_HTTP_WEB = 39202;
 const PATH_POLICIES = path.join(__dirname, 'config', 'partition_policies.json');
 const PATH_IMAGES = path.join(__dirname, 'config', 'image_catalog.json');
 const PATH_HISTORY = path.join(__dirname, 'config', 'history.json');
+const PATH_SERVER_CONFIG = path.join(__dirname, 'config', 'server_config.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 // 메모리 상태 관리
@@ -21,14 +22,29 @@ let imageCatalog = [];
 let deployHistory = [];
 let globalAutoApprove = true; // 전역 자동 승인 모드 (기본 ON)
 
+let serverConfig = {
+    masterImageDir: "C:\\images",
+    networkSharePath: "\\\\127.0.0.1\\images",
+    clientAccessMethod: "LOCAL_OR_SHARE",
+    lastScannedAt: new Date().toISOString()
+};
+
 // 연결된 WinPE 클라이언트 세션 목록: Map<sessionId, ClientSession>
 const connectedClients = new Map();
 
 // 웹소켓 대시보드 클라이언트 목록
 const webSocketClients = new Set();
 
-// 1. 설정 로드
+// 1. 설정 로드 및 저장
 function loadConfigs() {
+    try {
+        if (fs.existsSync(PATH_SERVER_CONFIG)) {
+            serverConfig = { ...serverConfig, ...JSON.parse(fs.readFileSync(PATH_SERVER_CONFIG, 'utf-8')) };
+        }
+    } catch (e) {
+        console.error('[-] 서버 설정 로드 오류:', e.message);
+    }
+
     try {
         if (fs.existsSync(PATH_POLICIES)) {
             partitionPolicies = JSON.parse(fs.readFileSync(PATH_POLICIES, 'utf-8'));
@@ -55,6 +71,22 @@ function loadConfigs() {
 }
 loadConfigs();
 
+function saveServerConfig() {
+    try {
+        fs.writeFileSync(PATH_SERVER_CONFIG, JSON.stringify(serverConfig, null, 2), 'utf-8');
+    } catch (e) {
+        console.error('[-] 서버 설정 저장 오류:', e.message);
+    }
+}
+
+function saveImageCatalog() {
+    try {
+        fs.writeFileSync(PATH_IMAGES, JSON.stringify(imageCatalog, null, 2), 'utf-8');
+    } catch (e) {
+        console.error('[-] 이미지 카탈로그 저장 오류:', e.message);
+    }
+}
+
 function saveHistory() {
     try {
         fs.writeFileSync(PATH_HISTORY, JSON.stringify(deployHistory, null, 2), 'utf-8');
@@ -63,13 +95,74 @@ function saveHistory() {
     }
 }
 
-// 2. 규칙 매칭 엔진
+// 2. 마스터 이미지 폴더 파일 탐색 및 스캔
+function scanMasterImageFolder(dirPath) {
+    const targetDir = dirPath || serverConfig.masterImageDir;
+    const result = {
+        folderPath: targetDir,
+        exists: false,
+        accessible: false,
+        error: null,
+        totalFiles: 0,
+        totalSizeGb: "0.00",
+        files: []
+    };
+
+    if (!targetDir) {
+        result.error = '이미지 폴더 경로가 지정되지 않았습니다.';
+        return result;
+    }
+
+    if (!fs.existsSync(targetDir)) {
+        result.error = `지정된 경로(${targetDir})가 존재하지 않습니다.`;
+        return result;
+    }
+
+    try {
+        result.exists = true;
+        const entries = fs.readdirSync(targetDir, { withFileTypes: true });
+        result.accessible = true;
+
+        let totalBytes = 0;
+        for (const entry of entries) {
+            if (entry.isFile()) {
+                const ext = path.extname(entry.name).toLowerCase();
+                if (ext === '.wim' || ext === '.esd' || ext === '.swm') {
+                    const fullPath = path.join(targetDir, entry.name);
+                    try {
+                        const stat = fs.statSync(fullPath);
+                        totalBytes += stat.size;
+                        result.files.push({
+                            fileName: entry.name,
+                            fullPath: fullPath,
+                            sizeBytes: stat.size,
+                            sizeGb: (stat.size / (1024 * 1024 * 1024)).toFixed(2),
+                            modifiedAt: stat.mtime.toISOString(),
+                            extension: ext.substring(1).toUpperCase()
+                        });
+                    } catch (statErr) {}
+                }
+            }
+        }
+
+        result.totalFiles = result.files.length;
+        result.totalSizeGb = (totalBytes / (1024 * 1024 * 1024)).toFixed(2);
+        return result;
+    } catch (e) {
+        result.error = `폴더 읽기 권한 오류: ${e.message}`;
+        return result;
+    }
+}
+
+// 3. 파티션 및 이미지 선택 규칙 매칭 엔진
 function matchPartitionPolicy(client) {
-    if (!client.disks || client.disks.length === 0) return null;
+    if (!client.disks || client.disks.length === 0) {
+        return partitionPolicies[0] || null;
+    }
 
     const diskCount = client.disks.length;
     const targetDisk = client.disks[0]; // 기본 타깃 디스크 0
-    const targetCapacityGb = targetDisk.sizeGb || (targetDisk.sizeBytes / (1024 * 1024 * 1024));
+    const targetCapacityGb = targetDisk.sizeGb || (targetDisk.sizeBytes ? (targetDisk.sizeBytes / (1024 * 1024 * 1024)) : 0);
 
     for (const policy of partitionPolicies) {
         const cond = policy.conditions;
@@ -99,20 +192,69 @@ function matchPartitionPolicy(client) {
 function matchImageCatalog(client) {
     const model = client.system?.modelName || '';
     const mfg = client.system?.manufacturer || '';
+    const targetDisk = (client.disks && client.disks.length > 0) ? client.disks[0] : null;
+    const diskGb = targetDisk ? (targetDisk.sizeGb || (targetDisk.sizeBytes / (1024 * 1024 * 1024))) : 0;
+    const diskBus = targetDisk ? (targetDisk.busType || '') : '';
 
-    for (const img of imageCatalog) {
-        if (img.modelPattern && img.modelPattern !== '*') {
-            const regex = new RegExp(img.modelPattern.replace(/\*/g, '.*'), 'i');
-            if (regex.test(model)) return img;
+    // 활성화된 규칙을 우선순위(priority 오름차순) 정렬
+    const sortedRules = [...imageCatalog]
+        .filter(r => r.enabled !== false)
+        .sort((a, b) => (a.priority || 999) - (b.priority || 999));
+
+    // 1차 패스: 일반 조건 규칙 평가 (fallback 제외)
+    for (const rule of sortedRules) {
+        if (rule.isFallback) continue;
+
+        const cond = rule.conditions || {};
+
+        // 1. 제조사 매칭
+        if (cond.manufacturer && cond.manufacturer !== '*') {
+            const parts = cond.manufacturer.split('|').map(s => s.trim());
+            const matched = parts.some(p => {
+                const reg = new RegExp('^' + p.replace(/\*/g, '.*') + '$', 'i');
+                return reg.test(mfg);
+            });
+            if (!matched) continue;
         }
-        if (img.manufacturer && img.manufacturer !== '*') {
-            const regex = new RegExp(img.manufacturer.replace(/\*/g, '.*'), 'i');
-            if (regex.test(mfg)) return img;
+
+        // 2. 모델명 매칭
+        if (cond.modelPattern && cond.modelPattern !== '*') {
+            const parts = cond.modelPattern.split('|').map(s => s.trim());
+            const matched = parts.some(p => {
+                const reg = new RegExp(p.replace(/\*/g, '.*'), 'i');
+                return reg.test(model);
+            });
+            if (!matched) continue;
         }
+
+        // 3. 디스크 용량 범위 매칭
+        if (cond.minDiskGb && diskGb > 0 && diskGb < cond.minDiskGb) continue;
+        if (cond.maxDiskGb && diskGb > 0 && diskGb > cond.maxDiskGb) continue;
+
+        // 4. 버스 타입 매칭
+        if (cond.targetDiskType && cond.targetDiskType !== 'ANY') {
+            if (diskBus && !diskBus.toLowerCase().includes(cond.targetDiskType.toLowerCase())) {
+                continue;
+            }
+        }
+
+        return rule;
     }
 
-    // 기본 이미지 반환
-    return imageCatalog[imageCatalog.length - 1] || null;
+    // 2차 패스: 일치하는 규칙이 없을 경우 Fallback 기본 규칙 사용
+    const fallbackRule = sortedRules.find(r => r.isFallback) || sortedRules[sortedRules.length - 1];
+    return fallbackRule || null;
+}
+
+// 연결된 모든 READY 상태 클라이언트의 매칭 규칙 재계산
+function reMatchConnectedClients() {
+    for (const [id, session] of connectedClients.entries()) {
+        if (session.status === 'READY' || session.status === 'CONNECTED') {
+            session.matchedPolicy = matchPartitionPolicy(session);
+            session.matchedImage = matchImageCatalog(session);
+            broadcastToDashboard('CLIENT_STATUS_CHANGE', { sessionId: id, client: getClientSummary(session) });
+        }
+    }
 }
 
 function generateDiskpartCommands(policy, targetDiskIndex = 0) {
@@ -156,7 +298,7 @@ function generateDiskpartCommands(policy, targetDiskIndex = 0) {
     return cmds;
 }
 
-// 3. 브라우저 대시보드 브로드캐스트
+// 4. 브라우저 대시보드 브로드캐스트
 function broadcastToDashboard(eventType, data) {
     const message = JSON.stringify({ event: eventType, data });
     for (const ws of webSocketClients) {
@@ -171,39 +313,38 @@ function broadcastToDashboard(eventType, data) {
 function getDashboardState() {
     const clients = [];
     for (const [id, c] of connectedClients.entries()) {
-        clients.push({
-            sessionId: id,
-            connectedAt: c.connectedAt,
-            ip: c.ip,
-            status: c.status,
-            system: c.system,
-            network: c.network,
-            disks: c.disks,
-            matchedPolicy: c.matchedPolicy,
-            matchedImage: c.matchedImage,
-            progress: c.progress,
-            result: c.result,
-            logs: c.logs
-        });
+        clients.push(getClientSummary(c));
     }
+
+    const scanResult = scanMasterImageFolder(serverConfig.masterImageDir);
+
     return {
         clients,
         partitionPolicies,
         imageCatalog,
+        serverConfig,
+        scannedImages: scanResult,
         deployHistory: deployHistory.slice(-50).reverse(), // 최근 50건
         globalAutoApprove
     };
 }
 
-// 4. 배포 승인 처리
-function approveClientDeploy(sessionId) {
+// 5. 배포 승인 처리
+function approveClientDeploy(sessionId, customImage = null) {
     const client = connectedClients.get(sessionId);
     if (!client || !client.socket) return false;
     if (client.status === 'IMAGING' || client.status === 'SUCCESS') return false;
 
     const policy = client.matchedPolicy || partitionPolicies[0];
-    const image = client.matchedImage || imageCatalog[0];
+    const imageRule = customImage || client.matchedImage || imageCatalog[0];
     const cmds = generateDiskpartCommands(policy, 0);
+
+    const targetFileName = imageRule?.targetImage?.imageFileName || imageRule?.imageFileName || 'Win11_Universal.wim';
+    const targetIndex = imageRule?.targetImage?.imageIndex || imageRule?.imageIndex || 1;
+    
+    // 로컬 디렉터리 기반 경로 및 네트워크 공유/HTTP 경로 구성
+    const localImagePath = path.join(serverConfig.masterImageDir, targetFileName);
+    const networkImagePath = path.join(serverConfig.networkSharePath, targetFileName);
 
     const deployPayload = {
         type: 'MASTER_APPROVE_DEPLOY',
@@ -213,10 +354,14 @@ function approveClientDeploy(sessionId) {
             partitionPolicyId: policy.id,
             partitionCommands: cmds,
             imageInfo: {
-                imageName: image ? image.imageFileName : 'default.wim',
-                imageIndex: image ? image.imageIndex : 1,
-                sourceType: 'HTTP_STREAM',
-                sourceUrl: `http://127.0.0.1:${PORT_HTTP_WEB}/images/${image ? image.imageFileName : 'default.wim'}`,
+                ruleId: imageRule.id,
+                ruleName: imageRule.name,
+                imageName: targetFileName,
+                imageIndex: targetIndex,
+                imageLocalPath: localImagePath,
+                imageNetworkPath: networkImagePath,
+                sourceType: serverConfig.clientAccessMethod || 'LOCAL_OR_SHARE',
+                sourceUrl: `http://127.0.0.1:${PORT_HTTP_WEB}/images/${encodeURIComponent(targetFileName)}`,
                 targetDriveLetter: 'W:',
                 bootDriveLetter: 'S:'
             },
@@ -255,7 +400,7 @@ function getClientSummary(c) {
     };
 }
 
-// 5. WinPE Agent TCP 서버 (Port 39201)
+// 6. WinPE Agent TCP 서버 (Port 39201)
 const tcpServer = net.createServer((socket) => {
     const sessionId = 'PC-' + crypto.randomBytes(4).toString('hex').toUpperCase();
     const clientIp = socket.remoteAddress.replace(/^.*:/, '');
@@ -324,7 +469,7 @@ function handleClientMessage(session, msg) {
 
         console.log(`[*] 클라이언트 등록 완료: [${session.sessionId}] 모델=${session.system.modelName}, 시리얼=${session.system.serialNumber}`);
         console.log(`    -> 매칭 정책: ${session.matchedPolicy?.name || '없음'}, 자동승인: ${session.matchedPolicy?.autoApprove}`);
-        console.log(`    -> 매칭 이미지: ${session.matchedImage?.name || '없음'}`);
+        console.log(`    -> 매칭 이미지: ${session.matchedImage?.name || '없음'} (${session.matchedImage?.targetImage?.imageFileName || session.matchedImage?.imageFileName})`);
 
         broadcastToDashboard('CLIENT_REGISTERED', { sessionId: session.sessionId, client: getClientSummary(session) });
 
@@ -357,6 +502,7 @@ function handleClientMessage(session, msg) {
         };
 
         // 배포 이력에 추가
+        const imgName = session.matchedImage?.targetImage?.imageFileName || session.matchedImage?.imageFileName || 'Unknown';
         const historyItem = {
             id: 'HIST-' + Date.now(),
             sessionId: session.sessionId,
@@ -364,7 +510,7 @@ function handleClientMessage(session, msg) {
             serialNumber: session.system.serialNumber,
             macAddress: session.network.primaryMac,
             policyName: session.matchedPolicy?.name,
-            imageName: session.matchedImage?.imageFileName,
+            imageName: imgName,
             status: session.status,
             durationSeconds: session.result.totalDurationSeconds,
             errorMessage: session.result.errorMessage,
@@ -382,7 +528,7 @@ tcpServer.listen(PORT_TCP_CLIENT, '0.0.0.0', () => {
     console.log(`[+] WinPE Agent TCP 서버 구동: 0.0.0.0:${PORT_TCP_CLIENT}`);
 });
 
-// 6. UDP 자동 탐색 서버 (Port 39200)
+// 7. UDP 자동 탐색 서버 (Port 39200)
 const udpServer = dgram.createSocket('udp4');
 udpServer.on('message', (msg, rinfo) => {
     try {
@@ -403,14 +549,14 @@ udpServer.bind(PORT_UDP_DISCOVERY, '0.0.0.0', () => {
     console.log(`[+] UDP 브로드캐스트 탐색 서버 구동: 0.0.0.0:${PORT_UDP_DISCOVERY}`);
 });
 
-// 7. 웹 대시보드 HTTP 서버 & 경량 WebSocket 핸들러
+// 8. 웹 대시보드 HTTP 서버 & API & WIM 스트리밍 서빙
 const httpServer = http.createServer((req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
-    // CORS 및 보안 헤더
+    // CORS 및 공통 헤더
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
 
     if (req.method === 'OPTIONS') {
         res.writeHead(204);
@@ -418,13 +564,147 @@ const httpServer = http.createServer((req, res) => {
         return;
     }
 
-    // API 라우팅
+    // -------------------------------------------------------------
+    // REST API 라우팅
+    // -------------------------------------------------------------
+    
+    // (1) 전체 상태 조회
     if (url.pathname === '/api/state') {
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify(getDashboardState()));
         return;
     }
 
+    // (2) 마스터 이미지 폴더 설정 및 스캔 API
+    if (url.pathname === '/api/images/folder' && req.method === 'GET') {
+        const scanRes = scanMasterImageFolder(serverConfig.masterImageDir);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ success: true, serverConfig, scan: scanRes }));
+        return;
+    }
+
+    if (url.pathname === '/api/images/folder' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', () => {
+            try {
+                const data = JSON.parse(body);
+                if (data.masterImageDir) {
+                    serverConfig.masterImageDir = data.masterImageDir.trim();
+                }
+                if (data.networkSharePath) {
+                    serverConfig.networkSharePath = data.networkSharePath.trim();
+                }
+                if (data.clientAccessMethod) {
+                    serverConfig.clientAccessMethod = data.clientAccessMethod;
+                }
+                serverConfig.lastScannedAt = new Date().toISOString();
+                saveServerConfig();
+
+                const scanRes = scanMasterImageFolder(serverConfig.masterImageDir);
+                broadcastToDashboard('SERVER_CONFIG_UPDATED', { serverConfig, scan: scanRes });
+
+                res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+                res.end(JSON.stringify({ success: true, serverConfig, scan: scanRes }));
+            } catch (e) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+
+    // (3) 이미지 선택 규칙 (Catalog/Rules) 조회 및 저장
+    if (url.pathname === '/api/images/rules' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ success: true, rules: imageCatalog }));
+        return;
+    }
+
+    if (url.pathname === '/api/images/rules' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', () => {
+            try {
+                const payload = JSON.parse(body);
+                if (Array.isArray(payload)) {
+                    imageCatalog = payload;
+                } else if (payload.rules && Array.isArray(payload.rules)) {
+                    imageCatalog = payload.rules;
+                }
+                saveImageCatalog();
+                reMatchConnectedClients();
+                broadcastToDashboard('IMAGE_RULES_UPDATED', { imageCatalog });
+
+                res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+                res.end(JSON.stringify({ success: true, rules: imageCatalog }));
+            } catch (e) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+
+    // (4) 선택 규칙 실시간 매칭 테스트 (시뮬레이션)
+    if (url.pathname === '/api/images/test-match' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', () => {
+            try {
+                const testSpec = JSON.parse(body);
+                const matched = matchImageCatalog({
+                    system: {
+                        modelName: testSpec.modelName || '',
+                        manufacturer: testSpec.manufacturer || ''
+                    },
+                    disks: [{
+                        sizeGb: Number(testSpec.diskGb) || 512,
+                        busType: testSpec.busType || 'NVMe'
+                    }]
+                });
+                res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+                res.end(JSON.stringify({ success: true, matchedRule: matched }));
+            } catch (e) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+
+    // (5) 특정 클라이언트의 배포 이미지 수동 변경
+    if (url.pathname === '/api/client/set-image' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', () => {
+            try {
+                const { sessionId, ruleId } = JSON.parse(body);
+                const client = connectedClients.get(sessionId);
+                if (!client) {
+                    res.writeHead(404, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: '클라이언트를 찾을 수 없습니다.' }));
+                    return;
+                }
+                const rule = imageCatalog.find(r => r.id === ruleId);
+                if (rule) {
+                    client.matchedImage = rule;
+                    broadcastToDashboard('CLIENT_STATUS_CHANGE', { sessionId, client: getClientSummary(client) });
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: true, matchedImage: rule }));
+                } else {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: '해당 규칙을 찾을 수 없습니다.' }));
+                }
+            } catch (e) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+
+    // (6) 클라이언트 개별 배포 승인
     if (url.pathname === '/api/approve' && req.method === 'POST') {
         let body = '';
         req.on('data', chunk => body += chunk);
@@ -442,6 +722,7 @@ const httpServer = http.createServer((req, res) => {
         return;
     }
 
+    // (7) 대기 중 PC 일괄 승인
     if (url.pathname === '/api/batch-approve' && req.method === 'POST') {
         let count = 0;
         for (const [id, c] of connectedClients.entries()) {
@@ -454,6 +735,7 @@ const httpServer = http.createServer((req, res) => {
         return;
     }
 
+    // (8) 전역 자동 승인 모드 토글
     if (url.pathname === '/api/toggle-auto-approve' && req.method === 'POST') {
         globalAutoApprove = !globalAutoApprove;
         broadcastToDashboard('GLOBAL_CONFIG_CHANGE', { globalAutoApprove });
@@ -462,6 +744,7 @@ const httpServer = http.createServer((req, res) => {
         return;
     }
 
+    // (9) 파티션 정책 저장
     if (url.pathname === '/api/policy/save' && req.method === 'POST') {
         let body = '';
         req.on('data', chunk => body += chunk);
@@ -475,6 +758,7 @@ const httpServer = http.createServer((req, res) => {
                     partitionPolicies.push(newPolicy);
                 }
                 fs.writeFileSync(PATH_POLICIES, JSON.stringify(partitionPolicies, null, 2), 'utf-8');
+                reMatchConnectedClients();
                 broadcastToDashboard('POLICIES_UPDATED', { partitionPolicies });
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ success: true, policies: partitionPolicies }));
@@ -486,7 +770,51 @@ const httpServer = http.createServer((req, res) => {
         return;
     }
 
-    // 정적 파일 제공 (public/)
+    // -------------------------------------------------------------
+    // 마스터 이미지 파일 HTTP 다운로드/스트리밍 제공 (/images/:filename)
+    // -------------------------------------------------------------
+    if (url.pathname.startsWith('/images/')) {
+        const reqFileName = decodeURIComponent(url.pathname.replace(/^\/images\//, ''));
+        const safeFileName = path.basename(reqFileName);
+        const imageFullPath = path.join(serverConfig.masterImageDir, safeFileName);
+
+        if (fs.existsSync(imageFullPath) && fs.statSync(imageFullPath).isFile()) {
+            const stat = fs.statSync(imageFullPath);
+            const range = req.headers.range;
+
+            if (range) {
+                // HTTP Range 청크 스트리밍 지원 (대용량 WIM 최적화)
+                const parts = range.replace(/bytes=/, "").split("-");
+                const start = parseInt(parts[0], 10);
+                const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+                const chunksize = (end - start) + 1;
+                const file = fs.createReadStream(imageFullPath, { start, end });
+                res.writeHead(206, {
+                    'Content-Range': `bytes ${start}-${end}/${stat.size}`,
+                    'Accept-Ranges': 'bytes',
+                    'Content-Length': chunksize,
+                    'Content-Type': 'application/octet-stream'
+                });
+                file.pipe(res);
+            } else {
+                res.writeHead(200, {
+                    'Content-Length': stat.size,
+                    'Content-Type': 'application/octet-stream',
+                    'Content-Disposition': `attachment; filename="${safeFileName}"`
+                });
+                fs.createReadStream(imageFullPath).pipe(res);
+            }
+            return;
+        } else {
+            res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ error: `지정된 마스터 이미지 파일(${safeFileName})을 찾을 수 없습니다.` }));
+            return;
+        }
+    }
+
+    // -------------------------------------------------------------
+    // 정적 프론트엔드 파일 제공 (public/)
+    // -------------------------------------------------------------
     let reqPath = url.pathname === '/' ? '/index.html' : url.pathname;
     const filePath = path.join(PUBLIC_DIR, reqPath);
 
@@ -508,7 +836,7 @@ const httpServer = http.createServer((req, res) => {
     }
 });
 
-// WebSocket 업그레이드 핸들러 (RFC 6455 표준 직접 구현 - 외부 패키지 무설치 상태에서도 100% 작동)
+// 9. WebSocket 업그레이드 핸들러 (외부 패키지 0% 독립 구현)
 httpServer.on('upgrade', (req, socket, head) => {
     const key = req.headers['sec-websocket-key'];
     if (!key) {
@@ -535,7 +863,6 @@ httpServer.on('upgrade', (req, socket, head) => {
     sendWsFrame(socket, initialState);
 
     socket.on('data', (buffer) => {
-        // Ping-Pong 및 클라이언트 메시지 수신 프레임 언마스킹
         handleIncomingWsFrame(socket, buffer);
     });
 
@@ -544,25 +871,32 @@ httpServer.on('upgrade', (req, socket, head) => {
 });
 
 function sendWsFrame(socket, payloadStr) {
-    const payload = Buffer.from(payloadStr, 'utf-8');
-    const length = payload.length;
-    let header;
+    if (!socket || socket.destroyed || socket.writableEnded) return;
+    try {
+        const payload = Buffer.from(payloadStr, 'utf-8');
+        const length = payload.length;
+        let header;
 
-    if (length <= 125) {
-        header = Buffer.from([0x81, length]);
-    } else if (length <= 65535) {
-        header = Buffer.alloc(4);
-        header[0] = 0x81;
-        header[1] = 126;
-        header.writeUInt16BE(length, 2);
-    } else {
-        header = Buffer.alloc(10);
-        header[0] = 0x81;
-        header[1] = 127;
-        header.writeBigUInt64BE(BigInt(length), 2);
+        if (length <= 125) {
+            header = Buffer.from([0x81, length]);
+        } else if (length <= 65535) {
+            header = Buffer.alloc(4);
+            header[0] = 0x81;
+            header[1] = 126;
+            header.writeUInt16BE(length, 2);
+        } else {
+            header = Buffer.alloc(10);
+            header[0] = 0x81;
+            header[1] = 127;
+            header.writeBigUInt64BE(BigInt(length), 2);
+        }
+
+        socket.write(Buffer.concat([header, payload]), (err) => {
+            if (err) webSocketClients.delete(socket);
+        });
+    } catch (e) {
+        webSocketClients.delete(socket);
     }
-
-    socket.write(Buffer.concat([header, payload]));
 }
 
 function handleIncomingWsFrame(socket, buf) {
@@ -570,20 +904,30 @@ function handleIncomingWsFrame(socket, buf) {
     const opcode = buf[0] & 0x0f;
     if (opcode === 0x8) { // Connection Close
         webSocketClients.delete(socket);
-        socket.end();
+        try { socket.end(); } catch (e) {}
         return;
     }
     if (opcode === 0x9) { // Ping -> Pong
-        socket.write(Buffer.from([0x8A, 0x00]));
+        try { socket.write(Buffer.from([0x8A, 0x00])); } catch (e) {}
         return;
     }
 }
+
+process.on('uncaughtException', (err) => {
+    console.error('[-] 서버 미처리 예외 (복구됨):', err.message);
+});
+
+process.on('unhandledRejection', (reason) => {
+    console.error('[-] 서버 미처리 거부 (복구됨):', reason);
+});
 
 httpServer.listen(PORT_HTTP_WEB, '0.0.0.0', () => {
     console.log(`================================================================`);
     console.log(`[🚀] 다중 PC 이미지 더빙 마스터 서버 가동 완료!`);
     console.log(`  - 웹 관리 대시보드: http://localhost:${PORT_HTTP_WEB}`);
+    console.log(`  - 마스터 이미지 디렉터리: ${serverConfig.masterImageDir}`);
     console.log(`  - WinPE Agent 소켓: 0.0.0.0:${PORT_TCP_CLIENT}`);
     console.log(`  - UDP 탐색 리스너:  0.0.0.0:${PORT_UDP_DISCOVERY}`);
     console.log(`================================================================\n`);
 });
+

@@ -100,7 +100,7 @@ bool AgentSocketClient::IsConnected() const {
     return m_connected;
 }
 
-bool AgentSocketClient::SendMessage(const std::string& jsonString) {
+bool AgentSocketClient::SendJsonMessage(const std::string& jsonString) {
     if (!m_connected) return false;
     std::string payload = jsonString + "\n";
     int sent = send(m_socket, payload.c_str(), (int)payload.length(), 0);

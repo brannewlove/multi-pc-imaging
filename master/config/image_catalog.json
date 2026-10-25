@@ -1,35 +1,82 @@
 [
   {
-    "imageId": "img-samsung-nt950",
-    "name": "삼성 갤럭시북 Pro (NT950QED) 표준 이미지",
-    "modelPattern": "NT950QED*",
-    "manufacturer": "SAMSUNG*",
-    "imageFileName": "Win11_23H2_Samsung_NT950.wim",
-    "imageIndex": 1,
-    "sizeBytes": 16106127360,
-    "osVersion": "Windows 11 Pro 23H2 x64",
-    "description": "삼성 기본 OEM 드라이버 및 칩셋 패키지 통합"
+    "id": "rule-samsung-galaxybook",
+    "name": "삼성 갤럭시북 시리즈 전용 WIM 규칙",
+    "enabled": true,
+    "priority": 1,
+    "conditions": {
+      "manufacturer": "SAMSUNG*",
+      "modelPattern": "NT950*|Galaxy*|Book*",
+      "minDiskGb": 200,
+      "maxDiskGb": 2000,
+      "targetDiskType": "NVMe"
+    },
+    "targetImage": {
+      "imageFileName": "Win11_23H2_Samsung_NT950.wim",
+      "imageIndex": 1,
+      "osVersion": "Windows 11 Pro 23H2 x64",
+      "description": "삼성 기본 OEM 드라이버 및 시스템 전용 유틸리티 패키지 통합"
+    },
+    "isFallback": false
   },
   {
-    "imageId": "img-lenovo-t14",
-    "name": "레노버 씽크패드 T14 Gen 3 표준 이미지",
-    "modelPattern": "21AH*|ThinkPad T14 Gen 3*",
-    "manufacturer": "LENOVO*",
-    "imageFileName": "Win11_23H2_ThinkPad_T14G3.wim",
-    "imageIndex": 1,
-    "sizeBytes": 17179869184,
-    "osVersion": "Windows 11 Pro 23H2 x64",
-    "description": "Lenovo Commercial Vantage 및 무선랜/썬더볼트 드라이버 통합"
+    "id": "rule-lenovo-thinkpad",
+    "name": "레노버 씽크패드 T시리즈 전용 WIM 규칙",
+    "enabled": true,
+    "priority": 2,
+    "conditions": {
+      "manufacturer": "LENOVO*",
+      "modelPattern": "21AH*|ThinkPad*|T14*|X1*",
+      "minDiskGb": 200,
+      "maxDiskGb": 2000,
+      "targetDiskType": "NVMe"
+    },
+    "targetImage": {
+      "imageFileName": "Win11_23H2_ThinkPad_T14G3.wim",
+      "imageIndex": 1,
+      "osVersion": "Windows 11 Pro 23H2 x64",
+      "description": "Lenovo Commercial Vantage 및 무선랜/썬더볼트 드라이버 통합"
+    },
+    "isFallback": false
   },
   {
-    "imageId": "img-generic-w11",
-    "name": "범용 윈도우 11 Pro 기본 이미지 (미지정 모델 공용)",
-    "modelPattern": "*",
-    "manufacturer": "*",
-    "imageFileName": "Win11_23H2_Universal_Clean.wim",
-    "imageIndex": 1,
-    "sizeBytes": 12884901888,
-    "osVersion": "Windows 11 Pro 23H2 x64",
-    "description": "드라이버 미통합 순정 이미지 (Windows Update 자동 설치용)"
+    "id": "rule-dell-latitude",
+    "name": "Dell 래티튜드 업무용 PC 전용 WIM 규칙",
+    "enabled": true,
+    "priority": 3,
+    "conditions": {
+      "manufacturer": "Dell*|Alienware*",
+      "modelPattern": "Latitude*|OptiPlex*|Precision*",
+      "minDiskGb": 200,
+      "maxDiskGb": 2000,
+      "targetDiskType": "ANY"
+    },
+    "targetImage": {
+      "imageFileName": "Win11_23H2_Dell_Latitude.wim",
+      "imageIndex": 1,
+      "osVersion": "Windows 11 Pro 23H2 x64",
+      "description": "Dell Command Update 및 인텔 통합 네트워크 드라이버 통합"
+    },
+    "isFallback": false
+  },
+  {
+    "id": "rule-generic-fallback",
+    "name": "범용 순정 Windows 11 Pro (기본 대체 규칙)",
+    "enabled": true,
+    "priority": 999,
+    "conditions": {
+      "manufacturer": "*",
+      "modelPattern": "*",
+      "minDiskGb": 60,
+      "maxDiskGb": 99999,
+      "targetDiskType": "ANY"
+    },
+    "targetImage": {
+      "imageFileName": "Win11_23H2_Universal_Clean.wim",
+      "imageIndex": 1,
+      "osVersion": "Windows 11 Pro 23H2 x64",
+      "description": "드라이버 미통합 순정 이미지 (조건 미부합 기종 공용)"
+    },
+    "isFallback": true
   }
 ]

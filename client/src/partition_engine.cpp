@@ -14,7 +14,7 @@ PartitionResult ExecutePartitionPlan(int targetDiskIndex, const std::vector<std:
     GetTempPathW(MAX_PATH, tempPath);
     std::wstring scriptPath = std::wstring(tempPath) + L"deploy_diskpart.txt";
 
-    std::ofstream ofs(scriptPath);
+    std::ofstream ofs(scriptPath.c_str());
     if (!ofs.is_open()) {
         res.success = false;
         res.errorMessage = "Failed to create temporary diskpart script file.";

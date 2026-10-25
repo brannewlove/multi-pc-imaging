@@ -136,7 +136,8 @@ function simulateClient(pcData, delayMs) {
                 try {
                     const msg = JSON.parse(line);
                     if (msg.type === 'MASTER_APPROVE_DEPLOY') {
-                        console.log(`[★] [시뮬레이터] 배포 승인 명령 수신됨: ${pcData.modelName} (타깃 디스크 0)`);
+                        const imgInfo = msg.payload?.imageInfo || {};
+                        console.log(`[★] [시뮬레이터] 배포 승인 수신: ${pcData.modelName} -> 할당 WIM: ${imgInfo.imageName || 'default.wim'} (규칙: ${imgInfo.ruleName || '기본'})`);
                         
                         // 파티셔닝 단계 (3초)
                         setTimeout(() => {

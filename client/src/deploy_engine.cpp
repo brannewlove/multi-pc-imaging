@@ -24,7 +24,7 @@ DeployResult ApplyWimImage(const DeployParams& params, ProgressCallback onProgre
     auto startTime = std::chrono::steady_clock::now();
 
     // 1. DISM /Apply-Image 명령 구성
-    // 예: dism.exe /Apply-Image /ImageFile:"Z:\images\win11.wim" /Index:1 /ApplyDir:W:\
+    // 예: dism.exe /Apply-Image /ImageFile:"Z:\images\win11.wim" /Index:1 /ApplyDir:W:
     std::wstring cmdLine = L"dism.exe /Apply-Image /ImageFile:\"" + 
         std::wstring(params.imagePath.begin(), params.imagePath.end()) + 
         L"\" /Index:" + std::to_wstring(params.imageIndex) + 

@@ -1,4 +1,13 @@
+#ifndef WINVER
+#define WINVER 0x0A00
+#endif
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0A00
+#endif
+
 #include "hw_scanner.h"
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <iphlpapi.h>
 #include <winioctl.h>
@@ -159,7 +168,7 @@ static const char* BusTypeToString(STORAGE_BUS_TYPE busType) {
         case BusTypeSata: return "SATA";
         case BusTypeUsb:  return "USB";
         case BusTypeScsi: return "SCSI";
-        case BusTypeRaid: return "RAID";
+        case BusTypeRAID: return "RAID";
         default:          return "Unknown";
     }
 }
@@ -206,7 +215,6 @@ static void ScanDisks(std::vector<DiskInfo>& outDisks) {
         }
 
         // 2. 디스크 지오메트리 및 총 용량
-        GET_DISK_ATTRIBUTES diskAttrs = {};
         GET_LENGTH_INFORMATION lengthInfo = {};
         if (DeviceIoControl(hDisk, IOCTL_DISK_GET_LENGTH_INFO,
                             nullptr, 0,

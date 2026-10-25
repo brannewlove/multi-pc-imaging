@@ -53,6 +53,11 @@
                     파티션 권장양식
                 </button>
 
+                <button class="btn btn-secondary" id="btnOpenImageRules">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle></svg>
+                    마스터 이미지 및 선택 규칙
+                </button>
+
                 <button class="btn btn-primary" id="btnBatchApprove">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
                     대기 PC 일괄 승인
@@ -192,6 +197,104 @@
                 <div class="modal-footer">
                     <button class="btn btn-secondary" id="btnClosePoliciesBottom">닫기</button>
                     <button class="btn btn-primary" id="btnAddNewPolicy">+ 새 권장양식 추가</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 마스터 이미지 폴더 및 선택 규칙 관리 모달 -->
+        <div class="modal-overlay hidden" id="modalImageRules">
+            <div class="modal-card modal-xl">
+                <div class="modal-header">
+                    <div class="modal-title-box">
+                        <span class="modal-icon">📀</span>
+                        <h3>마스터 이미지 폴더 및 기종별 선택 규칙</h3>
+                    </div>
+                    <button class="btn-close" id="btnCloseImageRules">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <!-- 섹션 1: 이미지 저장 폴더 설정 -->
+                    <div class="settings-section">
+                        <div class="section-title-bar">
+                            <h4>📁 1. 마스터 이미지 저장 폴더 설정</h4>
+                            <span class="badge" id="badgeScannedCount">0개 WIM 감지됨</span>
+                        </div>
+                        <p class="section-desc">
+                            배포할 OS WIM/ESD 이미지들이 보관된 마스터 PC의 로컬 폴더 또는 네트워크 공유 경로를 지정합니다.
+                        </p>
+                        <div class="form-row-grid">
+                            <div class="form-group flex-2">
+                                <label for="inputMasterImageDir">마스터 로컬 이미지 폴더 경로</label>
+                                <input type="text" id="inputMasterImageDir" placeholder="예: C:\images 또는 D:\WIM_Images">
+                            </div>
+                            <div class="form-group flex-2">
+                                <label for="inputNetworkSharePath">WinPE 클라이언트 접근 공유 경로</label>
+                                <input type="text" id="inputNetworkSharePath" placeholder="예: \\192.168.1.50\images 또는 Z:\images">
+                            </div>
+                            <div class="form-group flex-1">
+                                <label for="selectAccessMethod">전송 방식</label>
+                                <select id="selectAccessMethod">
+                                    <option value="LOCAL_OR_SHARE">로컬/네트워크 공유</option>
+                                    <option value="HTTP_STREAM">HTTP 스트리밍</option>
+                                </select>
+                            </div>
+                            <div class="form-group form-actions-align">
+                                <button class="btn btn-primary" id="btnSaveAndScanFolder">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                                    폴더 저장 & WIM 스캔
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 스캔된 WIM 파일 목록 -->
+                        <div class="scanned-files-box" id="scannedFilesContainer">
+                            <div class="scanned-files-empty">폴더 스캔을 실행하여 WIM 이미지 목록을 확인하세요.</div>
+                        </div>
+                    </div>
+
+                    <!-- 섹션 2: 이미지 선택 규칙 -->
+                    <div class="settings-section mt-4">
+                        <div class="section-title-bar">
+                            <h4>🎯 2. 기종별 마스터 이미지 선택 규칙 (Priority Matching Rules)</h4>
+                            <button class="btn btn-sm btn-outline-primary" id="btnAddNewImageRule">+ 새 선택 규칙 추가</button>
+                        </div>
+                        <p class="section-desc">
+                            타깃 PC가 부팅되면 위에서부터 우선순위대로 제조사, 모델명, SSD 용량을 대조하여 일치하는 WIM 이미지를 자동 지정합니다.
+                        </p>
+                        <div class="rules-list-container" id="imageRulesListContainer">
+                            <!-- 동적 규칙 카드들 -->
+                        </div>
+                    </div>
+
+                    <!-- 섹션 3: 실시간 규칙 매칭 시뮬레이터 -->
+                    <div class="settings-section mt-4 simulator-box">
+                        <div class="section-title-bar">
+                            <h4>🧪 3. 규칙 매칭 실시간 테스트 (시뮬레이터)</h4>
+                        </div>
+                        <div class="sim-test-row">
+                            <div class="sim-input-col">
+                                <label>제조사 (Manufacturer)</label>
+                                <input type="text" id="simTestMfg" placeholder="예: SAMSUNG" value="SAMSUNG">
+                            </div>
+                            <div class="sim-input-col">
+                                <label>모델명 (Model Name)</label>
+                                <input type="text" id="simTestModel" placeholder="예: NT950QED" value="NT950QED-KH71">
+                            </div>
+                            <div class="sim-input-col">
+                                <label>SSD 용량 (GB)</label>
+                                <input type="number" id="simTestDisk" placeholder="GB" value="1000">
+                            </div>
+                            <div class="sim-input-col btn-col">
+                                <button class="btn btn-secondary" id="btnRunMatchTest">매칭 테스트</button>
+                            </div>
+                        </div>
+                        <div class="sim-test-result" id="simTestResultBox">
+                            <span>사양을 입력하고 테스트를 실행하면 어떤 WIM 이미지가 선택되는지 즉시 확인할 수 있습니다.</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="btnCloseImageRulesBottom">닫기</button>
+                    <button class="btn btn-primary" id="btnSaveAllImageRules">선택 규칙 전체 저장</button>
                 </div>
             </div>
         </div>
