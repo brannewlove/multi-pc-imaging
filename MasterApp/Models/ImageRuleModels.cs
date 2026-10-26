@@ -66,6 +66,7 @@ namespace MultiDeployOS.Master.Models
         public long SizeBytes { get; set; }
         public string SizeGb { get; set; } = "0.00";
         public string ModifiedAt { get; set; } = "";
+        public DateTime LastWriteTime { get; set; }
         public string Extension { get; set; } = "WIM";
     }
 

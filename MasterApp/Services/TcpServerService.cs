@@ -159,7 +159,7 @@ namespace MultiDeployOS.Master.Services
             {
                 var cmds = SmartPartitionEngine.GenerateCommands(policy, session.Disks, 0);
 
-                string targetFileName = imageRule.TargetImage?.ImageFileName ?? "Win11_Universal.wim";
+                string rawPattern = imageRule.TargetImage?.ImageFileName ?? "*.wim";
                 int targetIndex = imageRule.TargetImage?.ImageIndex ?? 1;
 
                 string masterDir = (serverConfig.MasterImageDir ?? @"C:\images").Trim().Trim('"', '\'');
@@ -168,6 +168,20 @@ namespace MultiDeployOS.Master.Services
                 // 슬래시 통일
                 masterDir = masterDir.Replace('/', '\\');
                 sharePath = sharePath.Replace('/', '\\');
+
+                // 와일드카드(*) 및 동일 모델명 최신 WIM 파일 자동 매칭
+                var resolvedFile = WimScanner.ResolveLatestImageFile(masterDir, rawPattern, session.System.ModelName);
+                if (resolvedFile == null && !string.IsNullOrWhiteSpace(sharePath))
+                {
+                    resolvedFile = WimScanner.ResolveLatestImageFile(sharePath, rawPattern, session.System.ModelName);
+                }
+
+                string targetFileName = resolvedFile?.FileName ?? rawPattern;
+                session.ResolvedImageFileName = targetFileName;
+                if (resolvedFile != null)
+                {
+                    Console.WriteLine($"[+] [최신 WIM 자동 선택] 패턴: '{rawPattern}' -> 최신 파일: '{targetFileName}' (수정일: {resolvedFile.ModifiedAt}, {resolvedFile.SizeGb} GB)");
+                }
 
                 // 127.0.0.1 또는 localhost 자동 치환 (클라이언트와 연결된 실제 서버 LAN IP 사용)
                 string serverLanIp = "127.0.0.1";

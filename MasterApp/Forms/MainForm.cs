@@ -849,6 +849,17 @@ namespace MultiDeployOS.Master.Forms
                 // 정책 및 이미지 자동 매칭
                 session.MatchedPolicy = ImageMatcher.MatchPolicy(session, _configManager.PartitionPolicies);
                 session.MatchedImage = ImageMatcher.MatchRule(session, _configManager.ImageCatalog);
+
+                // 와일드카드(*) 및 모델명 기준 최신 WIM 이미지 미리 해결
+                string rawPattern = session.MatchedImage?.TargetImage?.ImageFileName ?? "*.wim";
+                string mDir = _configManager.ServerConfig.MasterImageDir ?? @"C:\images";
+                var resolved = WimScanner.ResolveLatestImageFile(mDir, rawPattern, session.System.ModelName);
+                if (resolved == null && !string.IsNullOrWhiteSpace(_configManager.ServerConfig.NetworkSharePath))
+                {
+                    resolved = WimScanner.ResolveLatestImageFile(_configManager.ServerConfig.NetworkSharePath, rawPattern, session.System.ModelName);
+                }
+                session.ResolvedImageFileName = resolved?.FileName;
+
                 _sessions[session.SessionId] = session;
 
                 RefreshGridRows();
@@ -893,7 +904,7 @@ namespace MultiDeployOS.Master.Forms
                     SerialNumber = session.System.SerialNumber,
                     MacAddress = session.Network.PrimaryMac,
                     PolicyName = session.MatchedPolicy?.Name ?? "-",
-                    ImageName = session.MatchedImage?.TargetImage?.ImageFileName ?? "-",
+                    ImageName = session.ResolvedImageFileName ?? session.MatchedImage?.TargetImage?.ImageFileName ?? "-",
                     Status = session.Status,
                     DurationSeconds = result.TotalDurationSeconds,
                     ErrorMessage = result.ErrorMessage,
@@ -999,7 +1010,7 @@ namespace MultiDeployOS.Master.Forms
                 "mac" => s => s.Network.PrimaryMac,
                 "disks" => s => s.Disks.Sum(d => d.SizeGb),
                 "policy" => s => s.MatchedPolicy?.Name ?? "",
-                "image" => s => s.MatchedImage?.TargetImage?.ImageFileName ?? "",
+                "image" => s => s.ResolvedImageFileName ?? s.MatchedImage?.TargetImage?.ImageFileName ?? "",
                 "progress" => s => s.Progress?.Percent ?? 0,
                 "duration" => s => s.Progress?.ElapsedSeconds ?? s.Result?.TotalDurationSeconds ?? 0,
                 _ => s => s.SessionId
@@ -1118,6 +1129,13 @@ namespace MultiDeployOS.Master.Forms
                     _ => Color.White
                 };
 
+                string rawImg = s.MatchedImage?.TargetImage?.ImageFileName ?? "-";
+                string imageDisplayText = s.ResolvedImageFileName ?? rawImg;
+                if (!string.IsNullOrEmpty(s.ResolvedImageFileName) && (rawImg.Contains('*') || rawImg.Contains('?')))
+                {
+                    imageDisplayText = $"{s.ResolvedImageFileName} [최신]";
+                }
+
                 if (existingRowMap.TryGetValue(s.SessionId, out var existingRow))
                 {
                     // 기존 행 내용만 수정하여 깜빡임 및 포커스 손실 방지
@@ -1128,7 +1146,7 @@ namespace MultiDeployOS.Master.Forms
                     SetCellText(existingRow.Cells["mac"], s.Network.PrimaryMac);
                     SetCellText(existingRow.Cells["disks"], disksText);
                     SetCellText(existingRow.Cells["policy"], s.MatchedPolicy?.Name ?? "-");
-                    SetCellText(existingRow.Cells["image"], s.MatchedImage?.TargetImage?.ImageFileName ?? "-");
+                    SetCellText(existingRow.Cells["image"], imageDisplayText);
                     SetCellText(existingRow.Cells["progress"], progressText);
                     SetCellText(existingRow.Cells["duration"], durationText);
                     SetCellText(existingRow.Cells["action"], actionButtonText);
@@ -1149,7 +1167,7 @@ namespace MultiDeployOS.Master.Forms
                         s.Network.PrimaryMac,
                         disksText,
                         s.MatchedPolicy?.Name ?? "-",
-                        s.MatchedImage?.TargetImage?.ImageFileName ?? "-",
+                        imageDisplayText,
                         progressText,
                         durationText,
                         actionButtonText

@@ -120,6 +120,7 @@ namespace MultiDeployOS.Master.Models
 
         public PartitionPolicy? MatchedPolicy { get; set; }
         public ImageRule? MatchedImage { get; set; }
+        public string? ResolvedImageFileName { get; set; }
         public ProgressInfo? Progress { get; set; }
         public ResultInfo? Result { get; set; }
 

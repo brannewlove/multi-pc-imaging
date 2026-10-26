@@ -43,7 +43,7 @@ static std::string ExtractJsonString(const std::string& json, const std::string&
     return "";
 }
 
-// WinPE 환경에서 USB나 로컬 디스크에 보관된 WIM 파일 자동 탐색
+// WinPE 환경에서 USB나 로컬 디스크에 보관된 WIM 파일 자동 탐색 (와일드카드 및 최신 파일 자동 선택 지원)
 static std::string FindLocalWimPath(const std::string& imageName) {
     if (imageName.empty()) return "";
     
@@ -57,16 +57,62 @@ static std::string FindLocalWimPath(const std::string& imageName) {
         ""
     };
 
-    for (int i = 0; driveLetters[i] != '\0'; ++i) {
-        char drive = driveLetters[i];
-        for (const auto& sub : subDirs) {
-            std::string candidate = std::string(1, drive) + ":\\" + sub + imageName;
-            DWORD attr = GetFileAttributesA(candidate.c_str());
-            if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
-                return candidate;
+    // 1단계: 와일드카드가 없는 경우 정확한 파일명이 존재하는지 1차 확인
+    if (imageName.find('*') == std::string::npos && imageName.find('?') == std::string::npos) {
+        for (int i = 0; driveLetters[i] != '\0'; ++i) {
+            char drive = driveLetters[i];
+            for (const auto& sub : subDirs) {
+                std::string candidate = std::string(1, drive) + ":\\" + sub + imageName;
+                DWORD attr = GetFileAttributesA(candidate.c_str());
+                if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+                    return candidate;
+                }
             }
         }
     }
+
+    // 2단계: 와일드카드 검색 또는 최신 파일 자동 선택 (FindFirstFileA)
+    std::string pattern = imageName;
+    if (pattern.find('*') == std::string::npos && pattern.find('?') == std::string::npos) {
+        // 확장자가 .wim인 경우 모델명 기반 검색 패턴 생성 (예: NT950_202610.wim -> NT950*.wim)
+        size_t underscore = pattern.find('_');
+        if (underscore != std::string::npos) {
+            pattern = pattern.substr(0, underscore + 1) + "*.wim";
+        } else {
+            pattern = "*.wim";
+        }
+    }
+
+    FILETIME bestTime = { 0, 0 };
+    std::string bestCandidate = "";
+
+    for (int i = 0; driveLetters[i] != '\0'; ++i) {
+        char drive = driveLetters[i];
+        for (const auto& sub : subDirs) {
+            std::string dirPath = std::string(1, drive) + ":\\" + sub;
+            std::string query = dirPath + pattern;
+
+            WIN32_FIND_DATAA ffd;
+            HANDLE hFind = FindFirstFileA(query.c_str(), &ffd);
+            if (hFind != INVALID_HANDLE_VALUE) {
+                do {
+                    if (!(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                        if (CompareFileTime(&ffd.ftLastWriteTime, &bestTime) > 0) {
+                            bestTime = ffd.ftLastWriteTime;
+                            bestCandidate = dirPath + ffd.cFileName;
+                        }
+                    }
+                } while (FindNextFileA(hFind, &ffd));
+                FindClose(hFind);
+            }
+        }
+    }
+
+    if (!bestCandidate.empty()) {
+        std::cout << "[+] USB/로컬 스토리지에서 최신 WIM 파일 매칭: " << bestCandidate << "\n";
+        return bestCandidate;
+    }
+
     return "";
 }
 

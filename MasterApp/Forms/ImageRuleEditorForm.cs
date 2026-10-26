@@ -26,6 +26,7 @@ namespace MultiDeployOS.Master.Forms
         private CheckBox _chkEnabled;
         private ComboBox _cboWimHelper;
         private TextBox _txtWimName;
+        private Label _lblWimPreview;
         private NumericUpDown _numWimIndex;
         private TextBox _txtRuleDesc;
 
@@ -304,15 +305,41 @@ namespace MultiDeployOS.Master.Forms
             {
                 if (_cboWimHelper.SelectedIndex > 0)
                 {
-                    _txtWimName.Text = _cboWimHelper.SelectedItem?.ToString() ?? "";
+                    string selected = _cboWimHelper.SelectedItem?.ToString() ?? "";
+                    if (selected.StartsWith("*.wim")) _txtWimName.Text = "*.wim";
+                    else if (selected.StartsWith("Win11_*.wim")) _txtWimName.Text = "Win11_*.wim";
+                    else _txtWimName.Text = selected;
                 }
             };
 
             _txtWimName = new TextBox { Width = 460 };
+            _txtWimName.TextChanged += (s, e) => UpdateWimPreview();
+            _txtModel.TextChanged += (s, e) => UpdateWimPreview();
+
+            _lblWimPreview = new Label
+            {
+                Text = "",
+                AutoSize = true,
+                ForeColor = Color.FromArgb(52, 211, 153),
+                Margin = new Padding(0, 4, 0, 0),
+                Font = new Font("맑은 고딕", 9f)
+            };
+
+            var lblTip = new Label
+            {
+                Text = "💡 와일드카드(*, ?) 입력 가능 (예: Win11_*.wim, NT950_*.wim) -> 배포 시 최신 파일 자동 매칭",
+                AutoSize = true,
+                ForeColor = Color.FromArgb(148, 163, 184),
+                Margin = new Padding(0, 2, 0, 0),
+                Font = new Font("맑은 고딕", 8.5f)
+            };
+
             pnlWimSelect.Controls.Add(new Label { Text = "감지된 WIM에서 빠른 선택:", AutoSize = true, ForeColor = Color.FromArgb(148, 163, 184) });
             pnlWimSelect.Controls.Add(_cboWimHelper);
-            pnlWimSelect.Controls.Add(new Label { Text = "적용 WIM 파일명:", AutoSize = true, ForeColor = Color.FromArgb(203, 213, 225), Margin = new Padding(0, 4, 0, 0) });
+            pnlWimSelect.Controls.Add(new Label { Text = "적용 WIM 파일명 (또는 와일드카드 패턴):", AutoSize = true, ForeColor = Color.FromArgb(203, 213, 225), Margin = new Padding(0, 4, 0, 0) });
             pnlWimSelect.Controls.Add(_txtWimName);
+            pnlWimSelect.Controls.Add(_lblWimPreview);
+            pnlWimSelect.Controls.Add(lblTip);
             AddFormRow(formTable, "할당 WIM 파일:", pnlWimSelect);
 
             _numWimIndex = new NumericUpDown { Minimum = 1, Maximum = 99, Value = 1, Width = 90 };
@@ -375,7 +402,9 @@ namespace MultiDeployOS.Master.Forms
             var scan = WimScanner.ScanFolder(_configManager.ServerConfig.MasterImageDir);
             _listScannedWims.Items.Clear();
             _cboWimHelper.Items.Clear();
-            _cboWimHelper.Items.Add("-- 감지된 WIM 파일 목록 --");
+            _cboWimHelper.Items.Add("-- WIM 파일 선택 또는 패턴 선택 --");
+            _cboWimHelper.Items.Add("*.wim (폴더 내 최신 WIM 자동 선택)");
+            _cboWimHelper.Items.Add("Win11_*.wim (최신 Win11 WIM 자동 선택)");
 
             if (scan.Exists && scan.Files.Count > 0)
             {
@@ -394,6 +423,37 @@ namespace MultiDeployOS.Master.Forms
                 _lblScanResult.ForeColor = Color.FromArgb(248, 113, 113);
             }
             _cboWimHelper.SelectedIndex = 0;
+            UpdateWimPreview();
+        }
+
+        private void UpdateWimPreview()
+        {
+            if (_lblWimPreview == null || _txtWimName == null) return;
+            string pattern = (_txtWimName.Text ?? "").Trim();
+            if (string.IsNullOrEmpty(pattern))
+            {
+                _lblWimPreview.Text = "";
+                return;
+            }
+
+            string masterDir = (_txtMasterDir.Text ?? "").Trim();
+            var resolved = WimScanner.ResolveLatestImageFile(masterDir, pattern, _txtModel.Text);
+
+            if (resolved != null)
+            {
+                _lblWimPreview.Text = $"👉 현재 최신 매칭: {resolved.FileName} (수정일: {resolved.ModifiedAt}, {resolved.SizeGb} GB)";
+                _lblWimPreview.ForeColor = Color.FromArgb(52, 211, 153);
+            }
+            else if (pattern.Contains('*') || pattern.Contains('?'))
+            {
+                _lblWimPreview.Text = "⚠️ 해당 패턴과 일치하는 WIM 파일이 현재 폴더에 없습니다. (배포 시점 재스캔)";
+                _lblWimPreview.ForeColor = Color.FromArgb(251, 191, 36);
+            }
+            else
+            {
+                _lblWimPreview.Text = "ℹ️ 고정 파일명 지정됨 (단일 파일 직접 배포)";
+                _lblWimPreview.ForeColor = Color.FromArgb(148, 163, 184);
+            }
         }
 
         private void LoadRulesList()
