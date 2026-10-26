@@ -14,5 +14,8 @@ MasterApp/bin/
 MasterApp/obj/
 bin/
 /bin/
+client/build/build.ninja
+client/build/.ninja_deps
+client/build/.ninja_log
 *.log
 

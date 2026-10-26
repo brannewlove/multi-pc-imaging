@@ -6,6 +6,58 @@
 
 namespace PartitionEngine {
 
+// diskpart 스크립트 명령 자동 정제 유틸리티
+// 따옴표가 들어간 label="System" 또는 assign letter="S"는 VDS 에러(0x80042429 / 2147755049)를 유발하므로 따옴표를 정제
+static std::string SanitizeDiskpartCommand(std::string cmd) {
+    while (!cmd.empty() && (cmd.front() == ' ' || cmd.front() == '\t')) cmd.erase(cmd.begin());
+    while (!cmd.empty() && (cmd.back() == ' ' || cmd.back() == '\t' || cmd.back() == '\r' || cmd.back() == '\n')) cmd.pop_back();
+
+    // 1. assign letter="S" 또는 assign letter=S: -> assign letter=S (따옴표 및 콜론 제거)
+    size_t assignPos = cmd.find("assign letter=");
+    if (assignPos != std::string::npos) {
+        std::string prefix = cmd.substr(0, assignPos + 14);
+        std::string letterVal = cmd.substr(assignPos + 14);
+        std::string cleaned;
+        for (char c : letterVal) {
+            if (c != '"' && c != '\'' && c != ':' && c != ' ') {
+                cleaned.push_back(c);
+            }
+        }
+        return prefix + cleaned;
+    }
+
+    // 2. format quick fs=fat32 label="System" -> 따옴표 제거 (0x80042429 VDS_E_BAD_LABEL 원천 차단)
+    size_t labelPos = cmd.find("label=");
+    if (labelPos != std::string::npos) {
+        std::string prefix = cmd.substr(0, labelPos + 6);
+        std::string rest = cmd.substr(labelPos + 6);
+        std::string cleanedRest;
+        char qChar = 0;
+        size_t idx = 0;
+        if (!rest.empty() && (rest[0] == '"' || rest[0] == '\'')) {
+            qChar = rest[0];
+            idx = 1;
+        }
+        while (idx < rest.length()) {
+            if (qChar != 0 && rest[idx] == qChar) {
+                idx++;
+                break;
+            } else if (qChar == 0 && (rest[idx] == ' ' || rest[idx] == '\t')) {
+                break;
+            } else {
+                if (rest[idx] != '"' && rest[idx] != '\'') {
+                    cleanedRest.push_back(rest[idx]);
+                }
+                idx++;
+            }
+        }
+        cleanedRest += rest.substr(idx);
+        return prefix + cleanedRest;
+    }
+
+    return cmd;
+}
+
 PartitionResult ExecutePartitionPlan(int targetDiskIndex, const std::vector<std::string>& commands) {
     PartitionResult res;
 
@@ -22,8 +74,11 @@ PartitionResult ExecutePartitionPlan(int targetDiskIndex, const std::vector<std:
     }
 
     ofs << "rescan\n";
-    for (const auto& cmd : commands) {
-        ofs << cmd << "\n";
+    for (const auto& rawCmd : commands) {
+        std::string cleanCmd = SanitizeDiskpartCommand(rawCmd);
+        if (!cleanCmd.empty()) {
+            ofs << cleanCmd << "\n";
+        }
     }
     ofs.close();
 
@@ -94,7 +149,20 @@ PartitionResult ExecutePartitionPlan(int targetDiskIndex, const std::vector<std:
         res.success = true;
     } else {
         res.success = false;
-        res.errorMessage = "Diskpart terminated with non-zero exit code: " + std::to_string(exitCode);
+        std::string errDetail;
+        for (const auto& l : res.outputLogs) {
+            if (l.find("오류") != std::string::npos || l.find("error") != std::string::npos ||
+                l.find("Error") != std::string::npos || l.find("실패") != std::string::npos ||
+                l.find("VDS") != std::string::npos || l.find("Virtual Disk Service") != std::string::npos) {
+                if (!errDetail.empty()) errDetail += " | ";
+                errDetail += l;
+            }
+        }
+        if (exitCode == 2147755049 || exitCode == 0x80042429) {
+            errDetail += " (VDS_E_BAD_LABEL: 볼륨 레이블 형식/문자 오류)";
+        }
+        res.errorMessage = "Diskpart 오류 (코드 " + std::to_string(exitCode) + "): " + 
+            (errDetail.empty() ? "디스크 파티셔닝 작업 실패" : errDetail);
     }
 
     return res;

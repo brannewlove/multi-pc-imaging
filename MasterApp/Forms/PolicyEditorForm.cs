@@ -343,9 +343,9 @@ namespace MultiDeployOS.Master.Forms
             _txtCommands.Text = string.Join(Environment.NewLine, new[]
             {
                 "select disk 0", "clean", "convert gpt",
-                "create partition efi size=100", "format quick fs=fat32 label=\"System\"", "assign letter=\"S\"",
+                "create partition efi size=100", "format quick fs=fat32 label=System", "assign letter=S",
                 "create partition msr size=16",
-                "create partition primary", "format quick fs=ntfs label=\"Windows11\"", "assign letter=\"W\""
+                "create partition primary", "format quick fs=ntfs label=Windows11", "assign letter=W"
             });
         }
 
@@ -355,10 +355,10 @@ namespace MultiDeployOS.Master.Forms
             _txtCommands.Text = string.Join(Environment.NewLine, new[]
             {
                 "select disk 0", "clean", "convert gpt",
-                "create partition efi size=100", "format quick fs=fat32 label=\"System\"", "assign letter=\"S\"",
+                "create partition efi size=100", "format quick fs=fat32 label=System", "assign letter=S",
                 "create partition msr size=16",
-                "create partition primary size=307200", "format quick fs=ntfs label=\"Windows11\"", "assign letter=\"W\"",
-                "create partition primary", "format quick fs=ntfs label=\"Data\"", "assign letter=\"D\""
+                "create partition primary size=307200", "format quick fs=ntfs label=Windows11", "assign letter=W",
+                "create partition primary", "format quick fs=ntfs label=Data", "assign letter=D"
             });
         }
 
@@ -368,10 +368,10 @@ namespace MultiDeployOS.Master.Forms
             _txtCommands.Text = string.Join(Environment.NewLine, new[]
             {
                 "select disk 0", "clean", "convert gpt",
-                "create partition efi size=100", "format quick fs=fat32 label=\"System\"", "assign letter=\"S\"",
+                "create partition efi size=100", "format quick fs=fat32 label=System", "assign letter=S",
                 "create partition msr size=16",
-                "create partition primary size=245760", "format quick fs=ntfs label=\"Windows11\"", "assign letter=\"W\"",
-                "create partition primary", "format quick fs=ntfs label=\"Data\"", "assign letter=\"D\""
+                "create partition primary size=245760", "format quick fs=ntfs label=Windows11", "assign letter=W",
+                "create partition primary", "format quick fs=ntfs label=Data", "assign letter=D"
             });
         }
 
@@ -381,11 +381,11 @@ namespace MultiDeployOS.Master.Forms
             _txtCommands.Text = string.Join(Environment.NewLine, new[]
             {
                 "select disk 0", "clean", "convert gpt",
-                "create partition efi size=100", "format quick fs=fat32 label=\"System\"", "assign letter=\"S\"",
+                "create partition efi size=100", "format quick fs=fat32 label=System", "assign letter=S",
                 "create partition msr size=16",
-                "create partition primary", "format quick fs=ntfs label=\"Windows11\"", "assign letter=\"W\"",
+                "create partition primary", "format quick fs=ntfs label=Windows11", "assign letter=W",
                 "select disk 1", "clean", "convert gpt",
-                "create partition primary", "format quick fs=ntfs label=\"Data\"", "assign letter=\"D\""
+                "create partition primary", "format quick fs=ntfs label=Data", "assign letter=D"
             });
         }
 

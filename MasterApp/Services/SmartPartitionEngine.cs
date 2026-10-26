@@ -36,11 +36,12 @@ namespace MultiDeployOS.Master.Services
                 foreach (var item in policy.Layout)
                 {
                     string fs = string.IsNullOrWhiteSpace(item.Fs) ? "ntfs" : item.Fs.ToLower();
+                    string label = (item.Label ?? (item.Type == "EFI" ? "System" : (item.Type == "OS" ? "Windows11" : "Data"))).Replace("\"", "").Trim();
                     if (item.Type == "EFI")
                     {
                         cmds.Add($"create partition efi size={item.SizeMb ?? 300}");
-                        cmds.Add($"format quick fs={fs} label=\"{item.Label ?? "System"}\"");
-                        if (!string.IsNullOrWhiteSpace(item.Letter)) cmds.Add($"assign letter={item.Letter}");
+                        cmds.Add($"format quick fs={fs} label={label}");
+                        if (!string.IsNullOrWhiteSpace(item.Letter)) cmds.Add($"assign letter={item.Letter.Trim('"', '\'', ':', ' ')}");
                     }
                     else if (item.Type == "MSR")
                     {
@@ -48,11 +49,10 @@ namespace MultiDeployOS.Master.Services
                     }
                     else if (item.Type == "OS" || item.Type == "DATA")
                     {
-                        string defaultLabel = item.Type == "OS" ? "Windows" : "Data";
                         string sizeStr = (item.SizeMb == null || item.SizeMb.ToString() == "REMAINDER") ? "" : $" size={item.SizeMb}";
                         cmds.Add($"create partition primary{sizeStr}");
-                        cmds.Add($"format quick fs={fs} label=\"{item.Label ?? defaultLabel}\"");
-                        if (!string.IsNullOrWhiteSpace(item.Letter)) cmds.Add($"assign letter={item.Letter}");
+                        cmds.Add($"format quick fs={fs} label={label}");
+                        if (!string.IsNullOrWhiteSpace(item.Letter)) cmds.Add($"assign letter={item.Letter.Trim('"', '\'', ':', ' ')}");
                     }
                 }
                 return cmds;
@@ -71,9 +71,9 @@ namespace MultiDeployOS.Master.Services
                 return new List<string>
                 {
                     "select disk 0", "clean", "convert gpt",
-                    "create partition efi size=100", "format quick fs=fat32 label=\"System\"", "assign letter=\"S\"",
+                    "create partition efi size=100", "format quick fs=fat32 label=System", "assign letter=S",
                     "create partition msr size=16",
-                    "create partition primary", "format quick fs=ntfs label=\"Windows11\"", "assign letter=\"W\""
+                    "create partition primary", "format quick fs=ntfs label=Windows11", "assign letter=W"
                 };
             }
 
@@ -89,19 +89,19 @@ namespace MultiDeployOS.Master.Services
                 cmds.Add("clean");
                 cmds.Add("convert gpt");
                 cmds.Add("create partition efi size=100");
-                cmds.Add("format quick fs=fat32 label=\"System\"");
-                cmds.Add("assign letter=\"S\"");
+                cmds.Add("format quick fs=fat32 label=System");
+                cmds.Add("assign letter=S");
                 cmds.Add("create partition msr size=16");
 
                 if (sizeGb > 512)
                 {
                     // (1-A) 크기 512GB 초과: 300GB "Windows11" 라벨 후 설치, 나머지 "Data" 라벨
                     cmds.Add("create partition primary size=307200"); // 300GB = 307,200 MB
-                    cmds.Add("format quick fs=ntfs label=\"Windows11\"");
-                    cmds.Add("assign letter=\"W\"");
+                    cmds.Add("format quick fs=ntfs label=Windows11");
+                    cmds.Add("assign letter=W");
                     cmds.Add("create partition primary");
-                    cmds.Add("format quick fs=ntfs label=\"Data\"");
-                    cmds.Add("assign letter=\"D\"");
+                    cmds.Add("format quick fs=ntfs label=Data");
+                    cmds.Add("assign letter=D");
                 }
                 else
                 {
@@ -109,11 +109,11 @@ namespace MultiDeployOS.Master.Services
                     long usableMb = Math.Max(1024, sizeMb - 120); // EFI(100MB)+MSR(16MB) 제외 잔여 공간
                     long halfMb = usableMb / 2;
                     cmds.Add($"create partition primary size={halfMb}");
-                    cmds.Add("format quick fs=ntfs label=\"Windows11\"");
-                    cmds.Add("assign letter=\"W\"");
+                    cmds.Add("format quick fs=ntfs label=Windows11");
+                    cmds.Add("assign letter=W");
                     cmds.Add("create partition primary");
-                    cmds.Add("format quick fs=ntfs label=\"Data\"");
-                    cmds.Add("assign letter=\"D\"");
+                    cmds.Add("format quick fs=ntfs label=Data");
+                    cmds.Add("assign letter=D");
                 }
             }
             else
@@ -134,12 +134,12 @@ namespace MultiDeployOS.Master.Services
                 cmds.Add("clean");
                 cmds.Add("convert gpt");
                 cmds.Add("create partition efi size=100");
-                cmds.Add("format quick fs=fat32 label=\"System\"");
-                cmds.Add("assign letter=\"S\"");
+                cmds.Add("format quick fs=fat32 label=System");
+                cmds.Add("assign letter=S");
                 cmds.Add("create partition msr size=16");
                 cmds.Add("create partition primary");
-                cmds.Add("format quick fs=ntfs label=\"Windows11\"");
-                cmds.Add("assign letter=\"W\"");
+                cmds.Add("format quick fs=ntfs label=Windows11");
+                cmds.Add("assign letter=W");
 
                 // 2. 나머지 디스크: 전부 GPT 포맷, 1개면 "Data", 2개 이상이면 "Data1", "Data2" 형식
                 for (int i = 0; i < dataDisks.Count; i++)
@@ -150,10 +150,10 @@ namespace MultiDeployOS.Master.Services
                     cmds.Add("clean");
                     cmds.Add("convert gpt");
                     cmds.Add("create partition primary");
-                    cmds.Add($"format quick fs=ntfs label=\"{label}\"");
+                    cmds.Add($"format quick fs=ntfs label={label}");
                     if (i == 0)
                     {
-                        cmds.Add("assign letter=\"D\"");
+                        cmds.Add("assign letter=D");
                     }
                     else
                     {

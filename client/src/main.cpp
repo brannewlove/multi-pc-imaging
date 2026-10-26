@@ -190,11 +190,11 @@ int main(int argc, char* argv[]) {
                     "clean",
                     "convert gpt",
                     "create partition efi size=300",
-                    "format quick fs=fat32 label=\"System\"",
+                    "format quick fs=fat32 label=System",
                     "assign letter=S",
                     "create partition msr size=16",
                     "create partition primary",
-                    "format quick fs=ntfs label=\"Windows\"",
+                    "format quick fs=ntfs label=Windows",
                     "assign letter=W"
                 };
             }
