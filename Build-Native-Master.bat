@@ -12,7 +12,9 @@ echo.
 set "DOTNET_CMD=dotnet"
 where dotnet >nul 2>nul
 if errorlevel 1 (
-    if exist "%USERPROFILE%\.dotnet\dotnet.exe" (
+    if exist "%ProgramFiles%\dotnet\dotnet.exe" (
+        set "DOTNET_CMD=%ProgramFiles%\dotnet\dotnet.exe"
+    ) else if exist "%USERPROFILE%\.dotnet\dotnet.exe" (
         set "DOTNET_CMD=%USERPROFILE%\.dotnet\dotnet.exe"
     ) else (
         echo [ERROR] .NET 8 SDK가 설치되어 있지 않습니다.
