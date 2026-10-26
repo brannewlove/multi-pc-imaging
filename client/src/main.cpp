@@ -360,14 +360,22 @@ int main(int argc, char* argv[]) {
                                 std::string subFile = (p2 != std::string::npos) ? netPath.substr(p2 + 1) : imageName;
 
                                 std::cout << "[*] SMB 네트워크 공유 연결 시도: " << uncShare << " -> Z:\n";
+                                // 최신 WinPE(Windows 11 22H2/24H2)의 게스트 로그온 차단 정책 자동 해제
+                                system("reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters\" /v AllowInsecureGuestAuth /t REG_DWORD /d 1 /f >nul 2>&1");
+                                system("reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Parameters\" /v RequireSecuritySignature /t REG_DWORD /d 0 /f >nul 2>&1");
+
                                 system("net use Z: /delete /y >nul 2>&1");
 
                                 std::string netCmd = "net use Z: \"" + uncShare + "\" /persistent:no >nul 2>&1";
                                 int r = system(netCmd.c_str());
                                 if (r != 0) {
-                                    // 게스트 권한으로 재시도
+                                    // 게스트 및 익명 권한으로 순차 재시도
                                     std::string guestCmd = "net use Z: \"" + uncShare + "\" \"\" /user:guest /persistent:no >nul 2>&1";
-                                    system(guestCmd.c_str());
+                                    r = system(guestCmd.c_str());
+                                    if (r != 0) {
+                                        std::string anonCmd = "net use Z: \"" + uncShare + "\" \"\" /user:Everyone /persistent:no >nul 2>&1";
+                                        system(anonCmd.c_str());
+                                    }
                                 }
 
                                 std::string zCandidate = "Z:\\" + subFile;
