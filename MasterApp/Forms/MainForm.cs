@@ -37,7 +37,10 @@ namespace MultiDeployOS.Master.Forms
         private DataGridView _gridClients;
         private DataGridView _gridHistory;
         private ContextMenuStrip _headerContextMenu;
+        private ContextMenuStrip _rowContextMenu;
         private int _contextClickedColumnIndex = -1;
+        private string _sortColumn = "";
+        private SortOrder _sortOrder = SortOrder.None;
 
         // 내부 상태 캐시
         private readonly Dictionary<string, ClientSession> _sessions = new();
@@ -342,6 +345,56 @@ namespace MultiDeployOS.Master.Forms
             _headerContextMenu.Items.Add(new ToolStripSeparator());
             var itemReset = _headerContextMenu.Items.Add("열 순서 및 너비 초기화");
             itemReset.Click += (s, e) => ResetColumnConfig();
+
+            // 클라이언트 행 우클릭 컨텍스트 메뉴 생성
+            _rowContextMenu = new ContextMenuStrip();
+            var itemApprove = _rowContextMenu.Items.Add("▶ 배포 승인 / 재시도");
+            itemApprove.Click += (s, e) =>
+            {
+                if (_gridClients.SelectedRows.Count > 0 && _gridClients.SelectedRows[0].Tag is ClientSession session)
+                {
+                    ApproveClient(session);
+                }
+            };
+
+            var itemResetState = _rowContextMenu.Items.Add("🔄 승인 대기(READY)로 상태 초기화");
+            itemResetState.Click += (s, e) =>
+            {
+                if (_gridClients.SelectedRows.Count > 0 && _gridClients.SelectedRows[0].Tag is ClientSession session)
+                {
+                    session.Status = "READY";
+                    session.Result = null;
+                    session.Progress = null;
+                    RefreshGridRows();
+                    UpdateMetrics();
+                }
+            };
+
+            _rowContextMenu.Items.Add(new ToolStripSeparator());
+
+            var itemDetail = _rowContextMenu.Items.Add("🔍 상세 오류 및 진행 상태 확인");
+            itemDetail.Click += (s, e) =>
+            {
+                if (_gridClients.SelectedRows.Count > 0 && _gridClients.SelectedRows[0].Tag is ClientSession session)
+                {
+                    string errMsg = string.IsNullOrEmpty(session.Result?.ErrorMessage) ? "(오류 메시지 없음)" : session.Result.ErrorMessage;
+                    string info = $"[PC 정보]\nIP: {session.IpAddress}\n모델: {session.System.Manufacturer} {session.System.ModelName}\n시리얼: {session.System.SerialNumber}\nMAC: {session.Network.PrimaryMac}\n\n[배포 상태]\n현재 상태: {session.Status}\n진행 단계: {session.Progress?.Step ?? "-"}\n진행률: {(int)(session.Progress?.Percent ?? 0)}%\n\n[오류 상세 내용]\n{errMsg}";
+                    MessageBox.Show(info, $"배포 상태 상세 - {session.System.ModelName}", MessageBoxButtons.OK, session.Status == "FAILED" ? MessageBoxIcon.Error : MessageBoxIcon.Information);
+                }
+            };
+
+            _rowContextMenu.Items.Add(new ToolStripSeparator());
+
+            var itemRemove = _rowContextMenu.Items.Add("❌ 목록에서 세션 제거");
+            itemRemove.Click += (s, e) =>
+            {
+                if (_gridClients.SelectedRows.Count > 0 && _gridClients.SelectedRows[0].Tag is ClientSession session)
+                {
+                    _sessions.Remove(session.SessionId);
+                    RefreshGridRows();
+                    UpdateMetrics();
+                }
+            };
         }
 
         private void SwitchTab(bool isLive)
@@ -498,7 +551,7 @@ namespace MultiDeployOS.Master.Forms
                 }
             };
 
-            // 헤더 우클릭 컨텍스트 메뉴
+            // 헤더 및 행 우클릭 컨텍스트 메뉴
             _gridClients.MouseDown += (s, e) =>
             {
                 if (e.Button == MouseButtons.Right)
@@ -508,6 +561,15 @@ namespace MultiDeployOS.Master.Forms
                     {
                         _contextClickedColumnIndex = hit.ColumnIndex;
                         _headerContextMenu.Show(_gridClients, e.Location);
+                    }
+                    else if (hit.Type == DataGridViewHitTestType.Cell || hit.Type == DataGridViewHitTestType.RowHeader)
+                    {
+                        if (hit.RowIndex >= 0 && hit.RowIndex < _gridClients.Rows.Count)
+                        {
+                            _gridClients.ClearSelection();
+                            _gridClients.Rows[hit.RowIndex].Selected = true;
+                            _rowContextMenu.Show(_gridClients, e.Location);
+                        }
                     }
                 }
             };
@@ -522,7 +584,8 @@ namespace MultiDeployOS.Master.Forms
                 Name = name,
                 HeaderText = headerText,
                 Width = width,
-                ReadOnly = true
+                ReadOnly = true,
+                SortMode = DataGridViewColumnSortMode.Programmatic
             };
             _gridClients.Columns.Add(col);
         }
@@ -802,16 +865,31 @@ namespace MultiDeployOS.Master.Forms
         }
 
         // ====================================================================
-        // 배포 승인 로직
+        // 배포 승인 로직 (대기 상태 READY 뿐만 아니라 실패 FAILED 재시도도 허용)
         // ====================================================================
         private void ApproveClient(ClientSession session)
         {
-            if (session.Status != "READY") return;
+            if (session.Status != "READY" && session.Status != "FAILED" && session.Status != "SUCCESS") return;
 
-            var policy = session.MatchedPolicy ?? _configManager.PartitionPolicies[0];
-            var rule = session.MatchedImage ?? _configManager.ImageCatalog[0];
+            // 이전 실패 결과 초기화
+            session.Result = null;
+            session.Progress = new ProgressInfo
+            {
+                Percent = 0,
+                Step = "배포 명령 승인됨 (작업 준비 중)",
+                SpeedMbps = 0,
+                ElapsedSeconds = 0
+            };
 
-            _tcpService.ApproveClient(session, policy, rule, _configManager.ServerConfig);
+            var policy = session.MatchedPolicy ?? _configManager.PartitionPolicies.FirstOrDefault() ?? new PartitionPolicy();
+            var rule = session.MatchedImage ?? _configManager.ImageCatalog.FirstOrDefault() ?? new ImageRule();
+
+            bool ok = _tcpService.ApproveClient(session, policy, rule, _configManager.ServerConfig);
+            if (!ok)
+            {
+                MessageBox.Show($"클라이언트({session.IpAddress})와의 통신 소켓이 닫혀있거나 응답하지 않습니다.\nWinPE 클라이언트가 켜져 있는지 확인해주세요.", "배포 승인 알림", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+
             RefreshGridRows();
             UpdateMetrics();
         }
@@ -821,7 +899,7 @@ namespace MultiDeployOS.Master.Forms
             int count = 0;
             foreach (var session in _sessions.Values.ToList())
             {
-                if (session.Status == "READY")
+                if (session.Status == "READY" || session.Status == "FAILED")
                 {
                     ApproveClient(session);
                     count++;
@@ -829,11 +907,11 @@ namespace MultiDeployOS.Master.Forms
             }
             if (count > 0)
             {
-                MessageBox.Show($"{count}대의 대기 PC에 배포 승인 명령을 전송했습니다.", "일괄 승인 완료", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show($"{count}대의 대기/실패 PC에 배포(재시도) 승인 명령을 전송했습니다.", "일괄 승인 완료", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             else
             {
-                MessageBox.Show("현재 승인 대기 중인 PC가 없습니다.", "확인", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("현재 승인 대기 또는 재시도 가능한 PC가 없습니다.", "확인", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
 
@@ -853,10 +931,43 @@ namespace MultiDeployOS.Master.Forms
         }
 
         // ====================================================================
-        // UI 갱신 메인 루틴
+        // 컬럼 헤더 정렬 로직 (클릭 시 포커스/스크롤 초기화 없이 인플레이스 정렬)
+        // ====================================================================
+        private List<ClientSession> ApplySort(List<ClientSession> list, string colName, SortOrder order)
+        {
+            if (order == SortOrder.None) return list;
+
+            Func<ClientSession, object?> keySelector = colName switch
+            {
+                "status" => s => s.Status,
+                "ip" => s => s.IpAddress,
+                "model" => s => $"{s.System.Manufacturer} {s.System.ModelName}",
+                "serial" => s => s.System.SerialNumber,
+                "mac" => s => s.Network.PrimaryMac,
+                "disks" => s => s.Disks.Sum(d => d.SizeGb),
+                "policy" => s => s.MatchedPolicy?.Name ?? "",
+                "image" => s => s.MatchedImage?.TargetImage?.ImageFileName ?? "",
+                "progress" => s => s.Progress?.Percent ?? 0,
+                "duration" => s => s.Progress?.ElapsedSeconds ?? s.Result?.TotalDurationSeconds ?? 0,
+                _ => s => s.SessionId
+            };
+
+            return order == SortOrder.Ascending
+                ? list.OrderBy(keySelector).ToList()
+                : list.OrderByDescending(keySelector).ToList();
+        }
+
+        // ====================================================================
+        // UI 갱신 메인 루틴 (Rows.Clear() 제거: 수평 스크롤 위치 및 셀 포커스 영구 보존)
         // ====================================================================
         private void RefreshGridRows()
         {
+            if (_gridClients.InvokeRequired)
+            {
+                _gridClients.BeginInvoke(new Action(RefreshGridRows));
+                return;
+            }
+
             string keyword = _txtSearch.Text.Trim().ToLower();
             string statusFilter = _cboStatusFilter.SelectedItem?.ToString() ?? "전체 상태";
 
@@ -877,10 +988,45 @@ namespace MultiDeployOS.Master.Forms
                 return true;
             }).ToList();
 
-            _gridClients.Rows.Clear();
-
-            foreach (var s in filtered)
+            if (!string.IsNullOrEmpty(_sortColumn) && _sortOrder != SortOrder.None)
             {
+                filtered = ApplySort(filtered, _sortColumn, _sortOrder);
+            }
+
+            // 1. 현재 수평 스크롤 위치 및 선택된 세션 ID 보존 (헤더 점프/리셋 완벽 방지)
+            int savedHScroll = _gridClients.HorizontalScrollingOffset;
+            string? selectedSessionId = null;
+            if (_gridClients.SelectedRows.Count > 0 && _gridClients.SelectedRows[0].Tag is ClientSession selS)
+            {
+                selectedSessionId = selS.SessionId;
+            }
+
+            // 2. 기존 행을 SessionId 기준으로 맵핑
+            var existingRowMap = new Dictionary<string, DataGridViewRow>();
+            foreach (DataGridViewRow r in _gridClients.Rows)
+            {
+                if (r.Tag is ClientSession s)
+                {
+                    existingRowMap[s.SessionId] = r;
+                }
+            }
+
+            // 3. 필터링 대상에서 제외된 세션 행만 안전하게 제거
+            var targetSessionIds = new HashSet<string>(filtered.Select(s => s.SessionId));
+            for (int i = _gridClients.Rows.Count - 1; i >= 0; i--)
+            {
+                var r = _gridClients.Rows[i];
+                if (r.Tag is ClientSession s && !targetSessionIds.Contains(s.SessionId))
+                {
+                    _gridClients.Rows.RemoveAt(i);
+                }
+            }
+
+            // 4. 세션 목록 순서대로 추가 또는 기존 행 셀 내용만 갱신 (In-Place Update)
+            for (int i = 0; i < filtered.Count; i++)
+            {
+                var s = filtered[i];
+
                 string statusText = s.Status switch
                 {
                     "READY" => "승인 대기",
@@ -895,7 +1041,7 @@ namespace MultiDeployOS.Master.Forms
 
                 string progressText = s.Status == "IMAGING"
                     ? $"[{(int)(s.Progress?.Percent ?? 0)}%] {s.Progress?.Step}"
-                    : (s.Status == "SUCCESS" ? "정상 완료" : (s.Status == "FAILED" ? ("오류: " + s.Result?.ErrorMessage) : "대기 중"));
+                    : (s.Status == "SUCCESS" ? "정상 완료" : (s.Status == "FAILED" ? ("오류: " + (s.Result?.ErrorMessage ?? "배포 실패")) : "대기 중"));
 
                 string durationText = s.Status == "IMAGING"
                     ? $"{s.Progress?.ElapsedSeconds ?? 0}초"
@@ -910,31 +1056,90 @@ namespace MultiDeployOS.Master.Forms
                     _ => "-"
                 };
 
-                int rowIdx = _gridClients.Rows.Add(
-                    statusText,
-                    s.IpAddress,
-                    $"{s.System.Manufacturer} {s.System.ModelName}".Trim(),
-                    s.System.SerialNumber,
-                    s.Network.PrimaryMac,
-                    disksText,
-                    s.MatchedPolicy?.Name ?? "-",
-                    s.MatchedImage?.TargetImage?.ImageFileName ?? "-",
-                    progressText,
-                    durationText,
-                    actionButtonText
-                );
+                Color statusColor = s.Status switch
+                {
+                    "READY" => Color.FromArgb(253, 224, 71),
+                    "IMAGING" => Color.FromArgb(192, 132, 252),
+                    "SUCCESS" => Color.FromArgb(74, 222, 128),
+                    "FAILED" => Color.FromArgb(248, 113, 113),
+                    _ => Color.White
+                };
 
-                var row = _gridClients.Rows[rowIdx];
-                row.Tag = s;
+                if (existingRowMap.TryGetValue(s.SessionId, out var existingRow))
+                {
+                    // 기존 행 내용만 수정하여 깜빡임 및 포커스 손실 방지
+                    SetCellText(existingRow.Cells["status"], statusText);
+                    SetCellText(existingRow.Cells["ip"], s.IpAddress);
+                    SetCellText(existingRow.Cells["model"], $"{s.System.Manufacturer} {s.System.ModelName}".Trim());
+                    SetCellText(existingRow.Cells["serial"], s.System.SerialNumber);
+                    SetCellText(existingRow.Cells["mac"], s.Network.PrimaryMac);
+                    SetCellText(existingRow.Cells["disks"], disksText);
+                    SetCellText(existingRow.Cells["policy"], s.MatchedPolicy?.Name ?? "-");
+                    SetCellText(existingRow.Cells["image"], s.MatchedImage?.TargetImage?.ImageFileName ?? "-");
+                    SetCellText(existingRow.Cells["progress"], progressText);
+                    SetCellText(existingRow.Cells["duration"], durationText);
+                    SetCellText(existingRow.Cells["action"], actionButtonText);
 
-                // 상태별 배경색 하이라이트
-                if (s.Status == "READY") row.Cells["status"].Style.ForeColor = Color.FromArgb(253, 224, 71);
-                else if (s.Status == "IMAGING") row.Cells["status"].Style.ForeColor = Color.FromArgb(192, 132, 252);
-                else if (s.Status == "SUCCESS") row.Cells["status"].Style.ForeColor = Color.FromArgb(74, 222, 128);
-                else if (s.Status == "FAILED") row.Cells["status"].Style.ForeColor = Color.FromArgb(248, 113, 113);
+                    existingRow.Tag = s;
+                    if (existingRow.Cells["status"].Style.ForeColor != statusColor)
+                    {
+                        existingRow.Cells["status"].Style.ForeColor = statusColor;
+                    }
+                }
+                else
+                {
+                    int rowIdx = _gridClients.Rows.Add(
+                        statusText,
+                        s.IpAddress,
+                        $"{s.System.Manufacturer} {s.System.ModelName}".Trim(),
+                        s.System.SerialNumber,
+                        s.Network.PrimaryMac,
+                        disksText,
+                        s.MatchedPolicy?.Name ?? "-",
+                        s.MatchedImage?.TargetImage?.ImageFileName ?? "-",
+                        progressText,
+                        durationText,
+                        actionButtonText
+                    );
+
+                    var newRow = _gridClients.Rows[rowIdx];
+                    newRow.Tag = s;
+                    newRow.Cells["status"].Style.ForeColor = statusColor;
+                }
+            }
+
+            // 5. 이전 선택 행 복원
+            if (!string.IsNullOrEmpty(selectedSessionId))
+            {
+                foreach (DataGridViewRow r in _gridClients.Rows)
+                {
+                    if (r.Tag is ClientSession s && s.SessionId == selectedSessionId)
+                    {
+                        r.Selected = true;
+                        break;
+                    }
+                }
+            }
+
+            // 6. 스크롤 위치 복원 (헤더 클릭 또는 자동 갱신 시 왼쪽 처음 헤더로 튀는 현상 원천 차단)
+            if (savedHScroll >= 0)
+            {
+                try
+                {
+                    _gridClients.HorizontalScrollingOffset = savedHScroll;
+                }
+                catch { }
             }
 
             UpdateMetrics();
+        }
+
+        private static void SetCellText(DataGridViewCell cell, string text)
+        {
+            if (cell.Value as string != text)
+            {
+                cell.Value = text;
+            }
         }
 
         private void UpdateMetrics()
@@ -981,16 +1186,50 @@ namespace MultiDeployOS.Master.Forms
             if (e.RowIndex >= 0 && _gridClients.Columns[e.ColumnIndex].Name == "action")
             {
                 var row = _gridClients.Rows[e.RowIndex];
-                if (row.Tag is ClientSession session && session.Status == "READY")
+                if (row.Tag is ClientSession session)
                 {
-                    ApproveClient(session);
+                    if (session.Status == "READY" || session.Status == "FAILED")
+                    {
+                        ApproveClient(session);
+                    }
+                    else if (session.Status == "SUCCESS")
+                    {
+                        var ask = MessageBox.Show($"이미 성공적으로 배포 완료된 PC({session.IpAddress})입니다.\n다시 배포 작업을 진행하시겠습니까?", "재배포 확인", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                        if (ask == DialogResult.Yes)
+                        {
+                            ApproveClient(session);
+                        }
+                    }
                 }
             }
         }
 
         private void GridClients_ColumnHeaderMouseClick(object? sender, DataGridViewCellMouseEventArgs e)
         {
-            SaveCurrentTableConfig();
+            if (e.Button != MouseButtons.Left) return;
+            if (e.ColumnIndex < 0 || e.ColumnIndex >= _gridClients.Columns.Count) return;
+
+            var col = _gridClients.Columns[e.ColumnIndex];
+            if (col.Name == "action") return;
+
+            // 정렬 방향 토글 (오름차순 -> 내림차순 -> 해제)
+            if (_sortColumn == col.Name)
+            {
+                _sortOrder = _sortOrder == SortOrder.Ascending ? SortOrder.Descending : (_sortOrder == SortOrder.Descending ? SortOrder.None : SortOrder.Ascending);
+            }
+            else
+            {
+                _sortColumn = col.Name;
+                _sortOrder = SortOrder.Ascending;
+            }
+
+            // 헤더 화살표 아이콘 갱신
+            foreach (DataGridViewColumn c in _gridClients.Columns)
+            {
+                c.HeaderCell.SortGlyphDirection = (c.Name == _sortColumn) ? _sortOrder : SortOrder.None;
+            }
+
+            RefreshGridRows();
         }
 
         // ====================================================================

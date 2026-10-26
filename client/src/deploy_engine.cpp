@@ -115,7 +115,13 @@ DeployResult ApplyWimImage(const DeployParams& params, ProgressCallback onProgre
 
     if (exitCode != 0) {
         result.success = false;
-        result.errorMessage = "DISM failed with exit code: " + std::to_string(exitCode);
+        std::string extraErr = "";
+        if (exitCode == 2 || exitCode == 3) {
+            extraErr = " (WIM 파일 경로를 찾을 수 없음: " + params.imagePath + ")";
+        } else if (exitCode == 87) {
+            extraErr = " (DISM 매개변수 형식 오류)";
+        }
+        result.errorMessage = "DISM 실패(코드 " + std::to_string(exitCode) + ")" + extraErr;
         return result;
     }
 

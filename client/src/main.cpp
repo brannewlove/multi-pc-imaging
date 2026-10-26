@@ -19,9 +19,15 @@ static std::string ExtractJsonString(const std::string& json, const std::string&
     while (pos < json.length() && (json[pos] == ' ' || json[pos] == ':' || json[pos] == '\t' || json[pos] == '\r' || json[pos] == '\n')) pos++;
     if (pos < json.length() && json[pos] == '"') {
         pos++;
-        size_t endPos = json.find('"', pos);
-        if (endPos != std::string::npos) {
-            return json.substr(pos, endPos - pos);
+        size_t endPos = pos;
+        while (endPos < json.length()) {
+            if (json[endPos] == '"' && (endPos == 0 || json[endPos - 1] != '\\')) {
+                break;
+            }
+            endPos++;
+        }
+        if (endPos < json.length()) {
+            return SimpleJson::UnescapeString(json.substr(pos, endPos - pos));
         }
     }
     return "";
@@ -56,9 +62,15 @@ static std::vector<std::string> ExtractPartitionCommands(const std::string& json
     while (curr < endArr) {
         size_t q1 = json.find('"', curr);
         if (q1 == std::string::npos || q1 >= endArr) break;
-        size_t q2 = json.find('"', q1 + 1);
-        if (q2 == std::string::npos || q2 > endArr) break;
-        cmds.push_back(json.substr(q1 + 1, q2 - q1 - 1));
+        size_t q2 = q1 + 1;
+        while (q2 < endArr) {
+            if (json[q2] == '"' && json[q2 - 1] != '\\') {
+                break;
+            }
+            q2++;
+        }
+        if (q2 >= endArr) break;
+        cmds.push_back(SimpleJson::UnescapeString(json.substr(q1 + 1, q2 - q1 - 1)));
         curr = q2 + 1;
     }
     return cmds;
@@ -256,16 +268,18 @@ int main(int argc, char* argv[]) {
                 finalResult.Set("status", "SUCCESS");
                 finalResult.Set("totalDurationSeconds", deployRes.durationSeconds);
                 finalResult.Set("errorMessage", "");
+                client.SendJsonMessage(finalResult.ToString());
+                std::cout << "[*] 배포 성공 보고 완료. 시스템 재부팅 준비 중... (Process completed. Ready for reboot.)\n";
+                break;
             } else {
                 std::cerr << "[-] [실패] 이미지 배포 실패 (FAILED: Deploy Failed): " << deployRes.errorMessage << "\n";
                 finalResult.Set("status", "FAILED");
                 finalResult.Set("totalDurationSeconds", deployRes.durationSeconds);
                 finalResult.Set("errorMessage", deployRes.errorMessage);
+                client.SendJsonMessage(finalResult.ToString());
+                std::cout << "[*] 배포 실패 보고 완료. 마스터 서버의 재시도 명령 대기 중... (Failed. Waiting for retry command from Master...)\n";
+                continue;
             }
-            client.SendJsonMessage(finalResult.ToString());
-
-            std::cout << "[*] 배포 결과 보고 완료. 시스템 종료/재부팅 대기... (Process completed. Ready for reboot.)\n";
-            break;
         }
     }
 

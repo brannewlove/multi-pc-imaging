@@ -153,7 +153,7 @@ namespace MultiDeployOS.Master.Services
         public bool ApproveClient(ClientSession session, PartitionPolicy policy, ImageRule imageRule, ServerConfig serverConfig)
         {
             if (session.SocketClient == null || !session.SocketClient.Connected) return false;
-            if (session.Status == "IMAGING" || session.Status == "SUCCESS") return false;
+            if (session.Status == "IMAGING") return false;
 
             try
             {

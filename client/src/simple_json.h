@@ -31,6 +31,32 @@ inline std::string EscapeString(const std::string& str) {
     return ss.str();
 }
 
+inline std::string UnescapeString(const std::string& str) {
+    std::string result;
+    result.reserve(str.length());
+    for (size_t i = 0; i < str.length(); ++i) {
+        if (str[i] == '\\' && i + 1 < str.length()) {
+            char next = str[i + 1];
+            switch (next) {
+                case '"':  result.push_back('"'); i++; break;
+                case '\\': result.push_back('\\'); i++; break;
+                case '/':  result.push_back('/'); i++; break;
+                case 'b':  result.push_back('\b'); i++; break;
+                case 'f':  result.push_back('\f'); i++; break;
+                case 'n':  result.push_back('\n'); i++; break;
+                case 'r':  result.push_back('\r'); i++; break;
+                case 't':  result.push_back('\t'); i++; break;
+                default:
+                    result.push_back(str[i]);
+                    break;
+            }
+        } else {
+            result.push_back(str[i]);
+        }
+    }
+    return result;
+}
+
 class JsonValue {
 public:
     enum Type { Null, Bool, Number, String, Array, Object };
