@@ -392,6 +392,13 @@ body {
     color: var(--text-muted);
 }
 
+.toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
 .search-filter-box {
     display: flex;
     gap: 12px;
@@ -399,7 +406,7 @@ body {
 
 .search-input-wrapper {
     position: relative;
-    width: 320px;
+    width: 280px;
 }
 
 .search-input-wrapper svg {
@@ -414,7 +421,7 @@ body {
 
 .search-input-wrapper input {
     width: 100%;
-    padding: 10px 14px 10px 40px;
+    padding: 9px 14px 9px 40px;
     background: var(--bg-card);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
@@ -422,15 +429,16 @@ body {
     font-size: 0.85rem;
     font-family: var(--font-sans);
     outline: none;
-    transition: border-color 0.2s ease;
+    transition: all 0.2s ease;
 }
 
 .search-input-wrapper input:focus {
     border-color: var(--primary);
+    box-shadow: 0 0 10px var(--primary-glow);
 }
 
 .filter-select {
-    padding: 10px 16px;
+    padding: 9px 14px;
     background: var(--bg-card);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
@@ -439,6 +447,158 @@ body {
     font-family: var(--font-sans);
     outline: none;
     cursor: pointer;
+    transition: border-color 0.2s ease;
+}
+
+.filter-select:focus {
+    border-color: var(--primary);
+}
+
+/* 툴바 뷰 컨트롤 & 열 관리 */
+.table-view-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.column-manage-wrapper {
+    position: relative;
+}
+
+.btn-sm {
+    padding: 8px 14px;
+    font-size: 0.82rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-sm svg {
+    width: 15px;
+    height: 15px;
+}
+
+.column-settings-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 250px;
+    background: #0f1624;
+    border: 1px solid var(--border-glow);
+    border-radius: var(--radius-md);
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.6), 0 0 15px rgba(14, 165, 233, 0.15);
+    backdrop-filter: blur(20px);
+    z-index: 500;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    animation: scaleUp 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.column-settings-menu.hidden {
+    display: none;
+}
+
+.column-menu-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.btn-text-sm {
+    background: none;
+    border: none;
+    color: var(--primary);
+    font-size: 0.75rem;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: color 0.15s ease;
+}
+
+.btn-text-sm:hover {
+    color: #38bdf8;
+    text-decoration: underline;
+}
+
+.column-checkbox-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.column-check-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    transition: all 0.15s ease;
+    user-select: none;
+}
+
+.column-check-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-main);
+}
+
+.column-check-item input[type="checkbox"] {
+    accent-color: var(--primary);
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+}
+
+/* 뷰 모드 토글 (테이블 / 카드) */
+.view-toggle-group {
+    display: inline-flex;
+    background: rgba(0, 0, 0, 0.4);
+    padding: 3px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+}
+
+.view-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-size: 0.8rem;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.view-toggle-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.view-toggle-btn.active {
+    background: var(--bg-card);
+    color: var(--primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--border-glow);
+}
+
+.view-toggle-btn:hover:not(.active) {
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.03);
 }
 
 /* --------------------------------------------------------------------------
@@ -804,6 +964,316 @@ body {
 
 .modern-table tr:hover td {
     background: rgba(255, 255, 255, 0.02);
+}
+
+/* --------------------------------------------------------------------------
+   Live Clients Data Table (테이블 양식 뷰)
+   -------------------------------------------------------------------------- */
+.clients-table-wrapper {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-card);
+    backdrop-filter: blur(16px);
+    overflow: hidden;
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+.clients-table-wrapper.hidden {
+    display: none;
+}
+
+.table-scroll-container {
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.client-data-table {
+    table-layout: fixed;
+    width: 100%;
+    min-width: 1100px;
+    border-collapse: collapse;
+}
+
+.client-data-table th.table-col-header {
+    background: rgba(10, 16, 28, 0.95);
+    padding: 14px 16px;
+    color: var(--text-dim);
+    font-weight: 700;
+    font-size: 0.74rem;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    border-bottom: 2px solid var(--border-subtle);
+    position: relative;
+    user-select: none;
+    cursor: grab;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.client-data-table th.table-col-header:active {
+    cursor: grabbing;
+}
+
+.client-data-table th.table-col-header:hover {
+    background: rgba(22, 33, 56, 0.9);
+    color: var(--text-main);
+}
+
+.client-data-table th.col-dragging {
+    opacity: 0.35;
+    background: rgba(14, 165, 233, 0.15);
+}
+
+/* 드래그 드롭 인디케이터 라인 */
+.client-data-table th.drop-target-left::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--primary);
+    box-shadow: 0 0 8px var(--primary);
+    z-index: 20;
+}
+
+.client-data-table th.drop-target-right::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--primary);
+    box-shadow: 0 0 8px var(--primary);
+    z-index: 20;
+}
+
+.th-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    overflow: hidden;
+}
+
+.th-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* 컬럼 정렬 아이콘 & 상태 */
+.sort-indicator {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-dim);
+    opacity: 0.4;
+    transition: all 0.2s ease;
+    font-size: 0.85rem;
+}
+
+.client-data-table th:hover .sort-indicator {
+    opacity: 0.8;
+}
+
+.client-data-table th.sorted-asc .sort-indicator,
+.client-data-table th.sorted-desc .sort-indicator {
+    opacity: 1;
+    color: var(--primary);
+    transform: scale(1.1);
+}
+
+/* 컬럼 너비 조절 리사이저 핸들 */
+.col-resizer {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 8px;
+    cursor: col-resize;
+    z-index: 10;
+    transition: background 0.15s ease;
+}
+
+.col-resizer:hover,
+.col-resizer.resizing {
+    background: var(--primary);
+    box-shadow: 0 0 6px var(--primary-glow);
+}
+
+/* 데이터 테이블 셀 */
+.client-data-table td.table-col-cell {
+    padding: 13px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 0.84rem;
+    color: var(--text-main);
+    vertical-align: middle;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: background 0.15s ease;
+}
+
+.client-data-table tr.client-row {
+    transition: all 0.2s ease;
+}
+
+.client-data-table tr.client-row:hover td {
+    background: rgba(255, 255, 255, 0.035);
+}
+
+/* 행 상태별 테두리 및 효과 */
+.client-data-table tr.row-ready td:first-child {
+    border-left: 3px solid var(--accent-amber);
+}
+
+.client-data-table tr.row-imaging td:first-child {
+    border-left: 3px solid var(--primary);
+}
+
+.client-data-table tr.row-success td:first-child {
+    border-left: 3px solid var(--accent-emerald);
+}
+
+.client-data-table tr.row-failed td:first-child {
+    border-left: 3px solid var(--accent-rose);
+}
+
+/* 테이블 내부 요소들 */
+.table-model-box {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.table-model-name {
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.table-mfg-tag {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--primary);
+    text-transform: uppercase;
+}
+
+.table-mono-text {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.table-disk-info {
+    font-size: 0.8rem;
+    color: #7dd3fc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.table-progress-box {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 140px;
+}
+
+.table-progress-bar-track {
+    height: 7px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+}
+
+.table-progress-bar-fill {
+    height: 100%;
+    background: var(--primary-gradient);
+    border-radius: var(--radius-full);
+    transition: width 0.3s ease;
+}
+
+.table-progress-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.73rem;
+    color: var(--text-dim);
+}
+
+.table-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* 헤더 우클릭 컨텍스트 메뉴 */
+.header-context-menu {
+    position: fixed;
+    background: #0f1624;
+    border: 1px solid var(--border-glow);
+    border-radius: var(--radius-md);
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.6), 0 0 15px rgba(14, 165, 233, 0.2);
+    backdrop-filter: blur(20px);
+    z-index: 10000;
+    padding: 6px;
+    min-width: 180px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    animation: scaleUp 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.header-context-menu.hidden {
+    display: none;
+}
+
+.context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--text-main);
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s ease;
+    width: 100%;
+}
+
+.context-menu-item svg {
+    width: 15px;
+    height: 15px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+}
+
+.context-menu-item:hover {
+    background: rgba(14, 165, 233, 0.18);
+    color: #fff;
+}
+
+.context-menu-item:hover svg {
+    color: var(--primary);
+}
+
+.context-menu-divider {
+    height: 1px;
+    background: var(--border-subtle);
+    margin: 4px 6px;
 }
 
 /* --------------------------------------------------------------------------

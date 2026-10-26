@@ -6,4 +6,8 @@ client/build/Makefile
 client/build/cmake_install.cmake
 client/build/CMakeCache.txt
 sample_images/
+node_modules/
+**/node_modules/
+master/dist/
+dist/
 

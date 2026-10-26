@@ -2,12 +2,40 @@
   "name": "multi-pc-imaging-master",
   "version": "1.0.0",
   "description": "다중 PC 자동화 이미지 더빙 시스템 마스터 서버 및 관제 대시보드",
-  "main": "server.js",
+  "main": "main.js",
   "scripts": {
-    "start": "node server.js",
-    "simulate": "node ../simulator/simulate_clients.js"
+    "start": "electron .",
+    "app": "electron .",
+    "server": "node server.js",
+    "simulate": "node ../simulator/simulate_clients.js",
+    "build:exe": "electron-builder --win portable",
+    "build:installer": "electron-builder --win nsis",
+    "pack": "electron-builder --dir"
+  },
+  "build": {
+    "appId": "com.multipc.imaging.master",
+    "productName": "MultiDeployOS",
+    "compression": "normal",
+    "win": {
+      "target": [
+        "portable"
+      ]
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "server.js",
+      "config/**/*",
+      "public/**/*"
+    ]
   },
   "dependencies": {
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0"
   }
 }

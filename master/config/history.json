@@ -115,5 +115,44 @@
     "durationSeconds": 20,
     "errorMessage": "",
     "completedAt": "2026-10-25T10:44:51.862Z"
+  },
+  {
+    "id": "HIST-1792971897001",
+    "sessionId": "PC-82268C84",
+    "modelName": "Galaxy Book3 Pro 360 (NT960QFG)",
+    "serialNumber": "SN-SAM-960Q-9912",
+    "macAddress": "00:E0:4C:81:22:1A",
+    "policyName": "1TB NVMe 단일 드라이브 (C드라이브 단독 구성)",
+    "imageName": "Win11_23H2_Samsung_NT950.wim",
+    "status": "SUCCESS",
+    "durationSeconds": 20,
+    "errorMessage": "",
+    "completedAt": "2026-10-25T23:44:57.001Z"
+  },
+  {
+    "id": "HIST-1792971901041",
+    "sessionId": "PC-AE500D07",
+    "modelName": "Latitude 5430",
+    "serialNumber": "SN-DLL-5430-8821",
+    "macAddress": "34:E6:D7:99:A1:02",
+    "policyName": "256GB SSD 기본 구성",
+    "imageName": "Win11_23H2_Dell_Latitude.wim",
+    "status": "SUCCESS",
+    "durationSeconds": 20,
+    "errorMessage": "",
+    "completedAt": "2026-10-25T23:45:01.041Z"
+  },
+  {
+    "id": "HIST-1792971903021",
+    "sessionId": "PC-DA8D86C2",
+    "modelName": "LG gram 16 (16Z90Q-GA76K)",
+    "serialNumber": "SN-LGE-16Z9-1144",
+    "macAddress": "A0:C5:89:4F:2E:8D",
+    "policyName": "1TB NVMe 단일 드라이브 (C드라이브 단독 구성)",
+    "imageName": "Win11_23H2_Universal_Clean.wim",
+    "status": "SUCCESS",
+    "durationSeconds": 20,
+    "errorMessage": "",
+    "completedAt": "2026-10-25T23:45:03.021Z"
   }
 ]

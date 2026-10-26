@@ -21,6 +21,24 @@ let statusFilter = 'ALL';
 
 // DOM 요소 캐시
 const elClientsGrid = document.getElementById('clientsGrid');
+const elClientsTableWrapper = document.getElementById('clientsTableWrapper');
+const elClientsDataTable = document.getElementById('clientsDataTable');
+const elClientsTableHeader = document.getElementById('clientsTableHeader');
+const elClientsTableBody = document.getElementById('clientsTableBody');
+
+const elBtnToggleColumnSettings = document.getElementById('btnToggleColumnSettings');
+const elMenuColumnSettings = document.getElementById('menuColumnSettings');
+const elColumnCheckboxList = document.getElementById('columnCheckboxList');
+const elBtnResetTableConfig = document.getElementById('btnResetTableConfig');
+
+const elBtnViewTable = document.getElementById('btnViewTable');
+const elBtnViewCards = document.getElementById('btnViewCards');
+
+const elHeaderContextMenu = document.getElementById('headerContextMenu');
+const elCtxHideColumn = document.getElementById('ctxHideColumn');
+const elCtxShowAllColumns = document.getElementById('ctxShowAllColumns');
+const elCtxResetConfig = document.getElementById('ctxResetConfig');
+
 const elHistoryBody = document.getElementById('historyTableBody');
 const elEmptyState = document.getElementById('emptyStatePlaceholder');
 
@@ -165,9 +183,71 @@ function handleWsMessage(event, data) {
     }
 }
 
+// ==========================================================================
+// 테이블 컬럼 메타데이터 및 설정 (순서, 숨김, 너비, 정렬 영구 유지)
+// ==========================================================================
+const COLUMNS_DEF = [
+    { id: 'status', label: '상태', minWidth: 110, defaultWidth: 140, sortable: true },
+    { id: 'model', label: '제조사 / 모델명', minWidth: 160, defaultWidth: 230, sortable: true },
+    { id: 'serial', label: '시리얼 번호 (S/N)', minWidth: 120, defaultWidth: 150, sortable: true },
+    { id: 'network', label: 'IP / MAC 주소', minWidth: 150, defaultWidth: 190, sortable: true },
+    { id: 'disk', label: '타깃 스토리지', minWidth: 160, defaultWidth: 210, sortable: true },
+    { id: 'policy', label: '파티션 권장양식', minWidth: 140, defaultWidth: 175, sortable: true },
+    { id: 'image', label: '매칭 WIM 이미지', minWidth: 160, defaultWidth: 210, sortable: true },
+    { id: 'progress', label: '진행률 / 소요속도', minWidth: 180, defaultWidth: 250, sortable: true },
+    { id: 'actions', label: '작업 제어', minWidth: 130, defaultWidth: 160, sortable: false }
+];
+
+let currentViewMode = 'TABLE'; // 'TABLE' | 'CARDS'
+let draggedColId = null;
+let contextTargetColId = null;
+let isResizing = false;
+
+function getDefaultTableConfig() {
+    return {
+        order: COLUMNS_DEF.map(c => c.id),
+        hidden: [],
+        widths: COLUMNS_DEF.reduce((acc, c) => ({ ...acc, [c.id]: c.defaultWidth }), {}),
+        sort: { key: 'status', dir: 'ASC' }
+    };
+}
+
+function loadTableConfig() {
+    try {
+        const saved = localStorage.getItem('multideploy_table_config_v1');
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            const def = getDefaultTableConfig();
+            const validOrder = (parsed.order || []).filter(id => COLUMNS_DEF.some(c => c.id === id));
+            COLUMNS_DEF.forEach(c => {
+                if (!validOrder.includes(c.id)) validOrder.push(c.id);
+            });
+            return {
+                order: validOrder,
+                hidden: parsed.hidden || [],
+                widths: { ...def.widths, ...(parsed.widths || {}) },
+                sort: parsed.sort !== undefined ? parsed.sort : def.sort
+            };
+        }
+    } catch (e) {
+        console.warn('[-] 테이블 설정 로드 실패, 기본값 복원:', e);
+    }
+    return getDefaultTableConfig();
+}
+
+let tableConfig = loadTableConfig();
+
+function saveTableConfig() {
+    try {
+        localStorage.setItem('multideploy_table_config_v1', JSON.stringify(tableConfig));
+    } catch (e) {
+        console.error('[-] 테이블 설정 저장 실패:', e);
+    }
+}
+
 // 2. 렌더링 메인 루틴
 function renderAll() {
-    renderClientsGrid();
+    renderClientsView();
     renderHistoryTable();
     updateMetrics();
 }
@@ -212,166 +292,563 @@ function updateAutoApproveUI() {
     }
 }
 
-// 3. 클라이언트 카드 렌더링
-function renderClientsGrid() {
-    const clients = Array.from(clientsMap.values()).filter(c => {
+function getFilteredClients() {
+    return Array.from(clientsMap.values()).filter(c => {
         const q = searchFilter.toLowerCase();
         const m = (c.system?.modelName || '').toLowerCase();
         const s = (c.system?.serialNumber || '').toLowerCase();
         const mac = (c.network?.primaryMac || '').toLowerCase();
-        const matchSearch = !q || m.includes(q) || s.includes(q) || mac.includes(q);
+        const ip = (c.network?.ipAddress || '').toLowerCase();
+        const matchSearch = !q || m.includes(q) || s.includes(q) || mac.includes(q) || ip.includes(q);
         const matchStatus = (statusFilter === 'ALL') || (c.status === statusFilter);
         return matchSearch && matchStatus;
     });
+}
+
+// 3. 실시간 클라이언트 뷰 통합 렌더링 (테이블 / 카드)
+function renderClientsView() {
+    const clients = getFilteredClients();
 
     if (clients.length === 0) {
-        elClientsGrid.innerHTML = '';
-        elClientsGrid.appendChild(elEmptyState);
         elEmptyState.classList.remove('hidden');
+        elClientsTableWrapper.classList.add('hidden');
+        elClientsGrid.classList.add('hidden');
         return;
     }
 
     elEmptyState.classList.add('hidden');
-    elClientsGrid.innerHTML = '';
 
-    clients.forEach(c => {
-        const card = createClientCardElement(c);
-        elClientsGrid.appendChild(card);
+    if (currentViewMode === 'TABLE') {
+        elClientsTableWrapper.classList.remove('hidden');
+        elClientsGrid.classList.add('hidden');
+        renderClientsTable(clients);
+    } else {
+        elClientsTableWrapper.classList.add('hidden');
+        elClientsGrid.classList.remove('hidden');
+        renderClientsGrid(clients);
+    }
+}
+
+// --------------------------------------------------------------------------
+// 테이블 양식 뷰 렌더링 (헤더 순서, 숨김, 너비, 정렬)
+// --------------------------------------------------------------------------
+function renderClientsTable(clients) {
+    renderTableHeader();
+    renderTableBody(clients);
+    renderColumnSettingsMenu();
+}
+
+function getVisibleColumns() {
+    const hiddenSet = new Set(tableConfig.hidden || []);
+    return tableConfig.order
+        .filter(id => !hiddenSet.has(id))
+        .map(id => COLUMNS_DEF.find(c => c.id === id))
+        .filter(Boolean);
+}
+
+function renderTableHeader() {
+    const visibleCols = getVisibleColumns();
+    elClientsTableHeader.innerHTML = '';
+    const tr = document.createElement('tr');
+
+    visibleCols.forEach(col => {
+        const th = document.createElement('th');
+        th.className = 'table-col-header';
+        th.dataset.colId = col.id;
+        const curWidth = tableConfig.widths[col.id] || col.defaultWidth;
+        th.style.width = `${curWidth}px`;
+        th.draggable = true;
+
+        // 정렬 상태 클래스
+        let sortIndicator = '';
+        if (col.sortable) {
+            if (tableConfig.sort && tableConfig.sort.key === col.id) {
+                if (tableConfig.sort.dir === 'ASC') {
+                    th.classList.add('sorted-asc');
+                    sortIndicator = '<span class="sort-indicator" title="오름차순 정렬 중">▲</span>';
+                } else if (tableConfig.sort.dir === 'DESC') {
+                    th.classList.add('sorted-desc');
+                    sortIndicator = '<span class="sort-indicator" title="내림차순 정렬 중">▼</span>';
+                }
+            } else {
+                sortIndicator = '<span class="sort-indicator" title="클릭하여 정렬">↕</span>';
+            }
+        }
+
+        th.innerHTML = `
+            <div class="th-inner" title="${col.sortable ? '클릭 시 정렬 토글, 드래그 시 순서 변경' : ''}">
+                <span class="th-title">${escapeHtml(col.label)}</span>
+                ${sortIndicator}
+            </div>
+            <div class="col-resizer" title="드래그하여 열 너비 변경, 더블클릭 시 자동 맞춤"></div>
+        `;
+
+        // 1. 헤더 정렬 클릭 이벤트
+        th.addEventListener('click', (e) => {
+            if (e.target.closest('.col-resizer') || isResizing) return;
+            handleHeaderSort(col.id);
+        });
+
+        // 2. 컬럼 리사이저 드래그 & 더블클릭 이벤트
+        const resizer = th.querySelector('.col-resizer');
+        resizer.addEventListener('mousedown', (e) => {
+            initColumnResize(th, col.id, e);
+        });
+        resizer.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            autoFitColumnWidth(col.id);
+        });
+
+        // 3. 컬럼 드래그 앤 드롭 (순서 변경) 이벤트
+        th.addEventListener('dragstart', (e) => {
+            draggedColId = col.id;
+            th.classList.add('col-dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', col.id);
+        });
+
+        th.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            if (!draggedColId || draggedColId === col.id) return;
+
+            const rect = th.getBoundingClientRect();
+            const midpoint = rect.left + rect.width / 2;
+            if (e.clientX < midpoint) {
+                th.classList.add('drop-target-left');
+                th.classList.remove('drop-target-right');
+            } else {
+                th.classList.add('drop-target-right');
+                th.classList.remove('drop-target-left');
+            }
+        });
+
+        th.addEventListener('dragleave', () => {
+            th.classList.remove('drop-target-left', 'drop-target-right');
+        });
+
+        th.addEventListener('drop', (e) => {
+            e.preventDefault();
+            th.classList.remove('drop-target-left', 'drop-target-right');
+            if (!draggedColId || draggedColId === col.id) return;
+
+            const rect = th.getBoundingClientRect();
+            const isLeft = e.clientX < (rect.left + rect.width / 2);
+            reorderColumns(draggedColId, col.id, isLeft);
+        });
+
+        th.addEventListener('dragend', () => {
+            th.classList.remove('col-dragging');
+            draggedColId = null;
+            document.querySelectorAll('.table-col-header').forEach(h => {
+                h.classList.remove('drop-target-left', 'drop-target-right', 'col-dragging');
+            });
+        });
+
+        // 4. 헤더 우클릭 컨텍스트 메뉴 (숨김/표시/초기화)
+        th.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            openHeaderContextMenu(col.id, e.clientX, e.clientY);
+        });
+
+        tr.appendChild(th);
+    });
+
+    elClientsTableHeader.appendChild(tr);
+}
+
+// 헤더 정렬 토글 핸들러
+function handleHeaderSort(colId) {
+    const col = COLUMNS_DEF.find(c => c.id === colId);
+    if (!col || !col.sortable) return;
+
+    if (tableConfig.sort && tableConfig.sort.key === colId) {
+        if (tableConfig.sort.dir === 'ASC') {
+            tableConfig.sort.dir = 'DESC';
+        } else if (tableConfig.sort.dir === 'DESC') {
+            tableConfig.sort = null; // 정렬 해제
+        }
+    } else {
+        tableConfig.sort = { key: colId, dir: 'ASC' };
+    }
+
+    saveTableConfig();
+    renderClientsView();
+}
+
+// 컬럼 순서 변경 핸들러
+function reorderColumns(sourceColId, targetColId, placeBefore) {
+    const order = [...tableConfig.order];
+    const fromIdx = order.indexOf(sourceColId);
+    if (fromIdx === -1) return;
+    order.splice(fromIdx, 1);
+
+    let toIdx = order.indexOf(targetColId);
+    if (!placeBefore) {
+        toIdx += 1;
+    }
+    order.splice(toIdx, 0, sourceColId);
+
+    tableConfig.order = order;
+    saveTableConfig();
+    renderClientsView();
+}
+
+// 컬럼 너비 리사이즈 핸들러
+function initColumnResize(th, colId, e) {
+    e.preventDefault();
+    e.stopPropagation();
+    isResizing = true;
+
+    const startX = e.clientX;
+    const startWidth = th.offsetWidth;
+    const colDef = COLUMNS_DEF.find(c => c.id === colId) || { minWidth: 80 };
+    const resizer = th.querySelector('.col-resizer');
+    if (resizer) resizer.classList.add('resizing');
+
+    function onMouseMove(ev) {
+        const delta = ev.clientX - startX;
+        const newWidth = Math.max(colDef.minWidth, startWidth + delta);
+        th.style.width = `${newWidth}px`;
+        tableConfig.widths[colId] = newWidth;
+
+        // 동일 열의 모든 셀 너비 동기화
+        const cells = elClientsTableBody.querySelectorAll(`td[data-col-id="${colId}"]`);
+        cells.forEach(td => td.style.width = `${newWidth}px`);
+    }
+
+    function onMouseUp() {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        if (resizer) resizer.classList.remove('resizing');
+        setTimeout(() => { isResizing = false; }, 50);
+        saveTableConfig();
+    }
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+}
+
+// 더블클릭 시 자동 맞춤 (Auto-fit)
+function autoFitColumnWidth(colId) {
+    const cells = elClientsTableBody.querySelectorAll(`td[data-col-id="${colId}"]`);
+    const th = elClientsTableHeader.querySelector(`th[data-col-id="${colId}"]`);
+    if (!th) return;
+
+    let maxWidth = 100;
+    cells.forEach(td => {
+        maxWidth = Math.max(maxWidth, td.scrollWidth + 32);
+    });
+    maxWidth = Math.max(maxWidth, th.scrollWidth + 32);
+    maxWidth = Math.min(Math.max(maxWidth, 100), 500);
+
+    tableConfig.widths[colId] = maxWidth;
+    th.style.width = `${maxWidth}px`;
+    cells.forEach(td => td.style.width = `${maxWidth}px`);
+    saveTableConfig();
+}
+
+// 클라이언트 목록 정렬 루틴
+function sortClients(clients) {
+    if (!tableConfig.sort || !tableConfig.sort.key) return clients;
+    const { key, dir } = tableConfig.sort;
+
+    return [...clients].sort((a, b) => {
+        let valA, valB;
+
+        if (key === 'status') {
+            const priority = { 'IMAGING': 0, 'READY': 1, 'CONNECTED': 1, 'SUCCESS': 2, 'FAILED': 3 };
+            valA = priority[a.status] !== undefined ? priority[a.status] : 9;
+            valB = priority[b.status] !== undefined ? priority[b.status] : 9;
+        } else if (key === 'model') {
+            valA = `${a.system?.manufacturer || ''} ${a.system?.modelName || ''}`.trim();
+            valB = `${b.system?.manufacturer || ''} ${b.system?.modelName || ''}`.trim();
+        } else if (key === 'serial') {
+            valA = a.system?.serialNumber || '';
+            valB = b.system?.serialNumber || '';
+        } else if (key === 'network') {
+            valA = a.network?.ipAddress || a.network?.primaryMac || '';
+            valB = b.network?.ipAddress || b.network?.primaryMac || '';
+        } else if (key === 'disk') {
+            valA = a.disks?.[0]?.sizeGb || 0;
+            valB = b.disks?.[0]?.sizeGb || 0;
+        } else if (key === 'policy') {
+            valA = a.matchedPolicy?.name || '';
+            valB = b.matchedPolicy?.name || '';
+        } else if (key === 'image') {
+            valA = a.matchedImage?.targetImage?.imageFileName || a.matchedImage?.imageFileName || '';
+            valB = b.matchedImage?.targetImage?.imageFileName || b.matchedImage?.imageFileName || '';
+        } else if (key === 'progress') {
+            valA = a.progress ? a.progress.percent : (a.status === 'SUCCESS' ? 100 : 0);
+            valB = b.progress ? b.progress.percent : (b.status === 'SUCCESS' ? 100 : 0);
+        } else {
+            valA = '';
+            valB = '';
+        }
+
+        let res = 0;
+        if (typeof valA === 'number' && typeof valB === 'number') {
+            res = valA - valB;
+        } else {
+            res = String(valA).localeCompare(String(valB), 'ko-KR', { numeric: true, sensitivity: 'base' });
+        }
+
+        return dir === 'DESC' ? -res : res;
     });
 }
 
-function createClientCardElement(c) {
-    const card = document.createElement('div');
-    card.className = `pc-card status-${(c.status || 'ready').toLowerCase()}`;
-    card.id = `card-${c.sessionId}`;
+// 테이블 데이터 바디 행 렌더링
+function renderTableBody(clients) {
+    const visibleCols = getVisibleColumns();
+    const sorted = sortClients(clients);
+    elClientsTableBody.innerHTML = '';
 
-    const modelName = c.system?.modelName || '미확인 모델 (Generic)';
-    const manufacturer = c.system?.manufacturer || '알 수 없음';
-    const serial = c.system?.serialNumber || 'N/A';
-    const mac = c.network?.primaryMac || '00:00:00:00:00:00';
-    const ip = c.network?.ipAddress || '127.0.0.1';
+    sorted.forEach(c => {
+        const tr = document.createElement('tr');
+        tr.className = `client-row row-${(c.status || 'ready').toLowerCase()}`;
+        tr.id = `trow-${c.sessionId}`;
 
-    // 타깃 디스크 정보
-    const disk0 = (c.disks && c.disks.length > 0) ? c.disks[0] : null;
-    const diskSummary = disk0 
-        ? `[Disk 0] ${disk0.friendlyName || 'SSD'} (${disk0.busType || 'NVMe'}, ${(disk0.sizeGb || 0).toFixed(0)} GB)` 
-        : '장착된 디스크 없음';
+        const modelName = c.system?.modelName || '미확인 모델 (Generic)';
+        const manufacturer = c.system?.manufacturer || '알 수 없음';
+        const serial = c.system?.serialNumber || 'N/A';
+        const mac = c.network?.primaryMac || '00:00:00:00:00:00';
+        const ip = c.network?.ipAddress || '127.0.0.1';
 
-    const policyName = c.matchedPolicy?.name || '맞춤 권장양식 자동 매칭됨';
-    const imageRuleName = c.matchedImage?.name || '자동 매칭 이미지';
-    const imageName = c.matchedImage?.targetImage?.imageFileName || c.matchedImage?.imageFileName || 'Win11_Universal.wim';
+        const disk0 = (c.disks && c.disks.length > 0) ? c.disks[0] : null;
+        const diskSummary = disk0 
+            ? `[Disk 0] ${disk0.friendlyName || 'SSD'} (${disk0.busType || 'NVMe'}, ${(disk0.sizeGb || 0).toFixed(0)} GB)` 
+            : '장착된 디스크 없음';
 
-    let statusText = '승인 대기';
-    let badgeClass = 'badge-ready';
-    if (c.status === 'IMAGING') {
-        statusText = '더빙 진행 중';
-        badgeClass = 'badge-imaging';
-    } else if (c.status === 'SUCCESS') {
-        statusText = '더빙 완료 (성공)';
-        badgeClass = 'badge-success';
-    } else if (c.status === 'FAILED') {
-        statusText = '더빙 실패';
-        badgeClass = 'badge-failed';
-    }
+        const policyName = c.matchedPolicy?.name || '맞춤 권장양식 자동 매칭';
+        const imageName = c.matchedImage?.targetImage?.imageFileName || c.matchedImage?.imageFileName || 'Win11_Universal.wim';
 
-    const pct = c.progress ? Math.round(c.progress.percent) : 0;
-    const stepText = c.progress ? c.progress.step : '배포 대기 중';
-    const remainingText = c.progress && c.progress.remainingSeconds > 0 ? `남은 시간: ${c.progress.remainingSeconds}초` : '';
+        let statusText = '승인 대기';
+        let badgeClass = 'badge-ready';
+        if (c.status === 'IMAGING') {
+            statusText = '더빙 진행 중';
+            badgeClass = 'badge-imaging';
+        } else if (c.status === 'SUCCESS') {
+            statusText = '더빙 완료';
+            badgeClass = 'badge-success';
+        } else if (c.status === 'FAILED') {
+            statusText = '더빙 실패';
+            badgeClass = 'badge-failed';
+        }
 
-    card.innerHTML = `
-        <div class="card-header">
-            <div class="model-title-box">
-                <span class="manufacturer-tag">${escapeHtml(manufacturer)}</span>
-                <h3 class="model-name">${escapeHtml(modelName)}</h3>
-            </div>
-            <span class="status-badge ${badgeClass}" id="badge-${c.sessionId}">
-                <span class="live-dot" style="width:7px;height:7px;"></span>
-                ${statusText}
-            </span>
-        </div>
+        const pct = c.progress ? Math.round(c.progress.percent) : (c.status === 'SUCCESS' ? 100 : 0);
+        const stepText = c.progress ? c.progress.step : (c.status === 'SUCCESS' ? '배포 완료' : (c.status === 'FAILED' ? '오류' : '대기 중'));
+        const speedText = c.progress && c.progress.speedMbps ? `${c.progress.speedMbps} MB/s` : '';
+        const remainText = c.progress && c.progress.remainingSeconds > 0 ? `${c.progress.remainingSeconds}s` : '';
 
-        <div class="spec-info-grid">
-            <div class="spec-item">
-                <span class="spec-key">시리얼 번호 (S/N)</span>
-                <span class="spec-val">${escapeHtml(serial)}</span>
-            </div>
-            <div class="spec-item">
-                <span class="spec-key">MAC / IP 주소</span>
-                <span class="spec-val">${escapeHtml(mac)} (${escapeHtml(ip)})</span>
-            </div>
-            <div class="spec-item" style="grid-column: span 2;">
-                <span class="spec-key">타깃 스토리지 (HDD/SSD)</span>
-                <span class="spec-val" style="color:#38bdf8;">${escapeHtml(diskSummary)}</span>
-            </div>
-        </div>
+        visibleCols.forEach(col => {
+            const td = document.createElement('td');
+            td.className = 'table-col-cell';
+            td.dataset.colId = col.id;
+            const curWidth = tableConfig.widths[col.id] || col.defaultWidth;
+            td.style.width = `${curWidth}px`;
 
-        <div class="deployment-plan-box">
-            <div class="plan-row">
-                <span class="plan-label">파티션 권장양식:</span>
-                <span class="policy-badge">${escapeHtml(policyName)}</span>
-            </div>
-            <div class="partition-visual-bar">
-                <div class="part-segment part-efi" title="EFI 시스템 파티션 (300MB)">EFI 300M</div>
-                <div class="part-segment part-msr" title="MSR 예약 파티션 (16MB)">MSR</div>
-                <div class="part-segment part-os" title="Windows OS 파티션 (주 파티션)">Windows C: (주 파티션)</div>
-            </div>
-            <div class="plan-row" style="margin-top:6px; align-items:center;">
-                <span class="plan-label">매칭 WIM 이미지:</span>
-                <span class="target-wim-badge" title="${escapeHtml(imageRuleName)}">
-                    📀 ${escapeHtml(imageName)}
-                </span>
-            </div>
-        </div>
+            switch (col.id) {
+                case 'status':
+                    td.innerHTML = `
+                        <span class="status-badge ${badgeClass}" id="tbadge-${c.sessionId}">
+                            <span class="live-dot" style="width:7px;height:7px;"></span>
+                            ${statusText}
+                        </span>
+                    `;
+                    break;
 
-        <div class="progress-panel" id="progress-${c.sessionId}">
-            <div class="progress-header">
-                <span class="progress-step" id="pstep-${c.sessionId}">${stepText}</span>
-                <span class="progress-percent" id="ppct-${c.sessionId}">${pct}%</span>
-            </div>
-            <div class="progress-bar-track">
-                <div class="progress-bar-fill" id="pbar-${c.sessionId}" style="width: ${pct}%;"></div>
-            </div>
-            <div class="progress-meta">
-                <span id="pspeed-${c.sessionId}">${c.progress ? (c.progress.speedMbps || 850) + ' MB/s' : ''}</span>
-                <span id="premain-${c.sessionId}">${remainingText}</span>
-            </div>
-        </div>
+                case 'model':
+                    td.innerHTML = `
+                        <div class="table-model-box" title="${escapeHtml(manufacturer)} ${escapeHtml(modelName)}">
+                            <span class="table-mfg-tag">${escapeHtml(manufacturer)}</span>
+                            <span class="table-model-name">${escapeHtml(modelName)}</span>
+                        </div>
+                    `;
+                    break;
 
-        <div class="card-actions">
-            <button class="btn btn-secondary btn-sm" onclick="openClientLog('${c.sessionId}')">
-                로그 보기
-            </button>
-            ${(c.status === 'READY' || c.status === 'CONNECTED') ? `
-                <button class="btn btn-primary btn-approve btn-sm" onclick="approveDeploy('${c.sessionId}')">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                    더빙 승인 시작
-                </button>
-            ` : `
-                <span style="font-size:0.8rem;color:var(--text-dim);">
-                    ${c.status === 'IMAGING' ? '자동 배포 작업 진행 중...' : (c.status === 'SUCCESS' ? '완료됨' : '오류 발생')}
-                </span>
-            `}
-        </div>
-    `;
+                case 'serial':
+                    td.innerHTML = `<span class="table-mono-text" title="${escapeHtml(serial)}">${escapeHtml(serial)}</span>`;
+                    break;
 
-    return card;
+                case 'network':
+                    td.innerHTML = `
+                        <div style="display:flex;flex-direction:column;gap:1px;" title="IP: ${escapeHtml(ip)} / MAC: ${escapeHtml(mac)}">
+                            <span class="table-mono-text" style="color:var(--text-main);">${escapeHtml(ip)}</span>
+                            <span class="table-mono-text" style="font-size:0.75rem;">${escapeHtml(mac)}</span>
+                        </div>
+                    `;
+                    break;
+
+                case 'disk':
+                    td.innerHTML = `<div class="table-disk-info" title="${escapeHtml(diskSummary)}">${escapeHtml(diskSummary)}</div>`;
+                    break;
+
+                case 'policy':
+                    td.innerHTML = `<span class="policy-badge" title="${escapeHtml(policyName)}">${escapeHtml(policyName)}</span>`;
+                    break;
+
+                case 'image':
+                    td.innerHTML = `
+                        <span class="target-wim-badge" style="font-size:0.75rem;" title="${escapeHtml(imageName)}">
+                            📀 ${escapeHtml(imageName)}
+                        </span>
+                    `;
+                    break;
+
+                case 'progress':
+                    td.innerHTML = `
+                        <div class="table-progress-box" id="tprog-${c.sessionId}">
+                            <div class="table-progress-meta">
+                                <span id="tpstep-${c.sessionId}" style="font-weight:600;color:#38bdf8;">${escapeHtml(stepText)}</span>
+                                <span id="tppct-${c.sessionId}" style="font-weight:700;color:#fff;">${pct}%</span>
+                            </div>
+                            <div class="table-progress-bar-track">
+                                <div class="table-progress-bar-fill" id="tpbar-${c.sessionId}" style="width:${pct}%;"></div>
+                            </div>
+                            <div class="table-progress-meta" style="font-size:0.7rem;">
+                                <span id="tpspeed-${c.sessionId}">${speedText}</span>
+                                <span id="tpremain-${c.sessionId}">${remainText}</span>
+                            </div>
+                        </div>
+                    `;
+                    break;
+
+                case 'actions':
+                    td.innerHTML = `
+                        <div class="table-actions">
+                            ${(c.status === 'READY' || c.status === 'CONNECTED') ? `
+                                <button class="btn btn-primary btn-sm btn-approve" style="padding:4px 8px;font-size:0.75rem;" onclick="approveDeploy('${c.sessionId}')" title="지금 즉시 더빙을 시작합니다">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                    승인
+                                </button>
+                            ` : ''}
+                            <button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:0.75rem;" onclick="openClientLog('${c.sessionId}')">
+                                로그
+                            </button>
+                        </div>
+                    `;
+                    break;
+            }
+
+            tr.appendChild(td);
+        });
+
+        elClientsTableBody.appendChild(tr);
+    });
 }
 
+// 실시간 클라이언트 프로그레스 바 갱신 (테이블 & 카드 동시 반영)
 function updateClientProgressUI(client) {
+    const pct = Math.round(client.progress.percent);
+
+    // 1. 카드 뷰 갱신
     const pbar = document.getElementById(`pbar-${client.sessionId}`);
     const ppct = document.getElementById(`ppct-${client.sessionId}`);
     const pstep = document.getElementById(`pstep-${client.sessionId}`);
     const pspeed = document.getElementById(`pspeed-${client.sessionId}`);
     const premain = document.getElementById(`premain-${client.sessionId}`);
 
-    if (pbar && client.progress) {
-        const pct = Math.round(client.progress.percent);
+    if (pbar) {
         pbar.style.width = `${pct}%`;
         if (ppct) ppct.textContent = `${pct}%`;
         if (pstep) pstep.textContent = client.progress.step;
         if (pspeed && client.progress.speedMbps) pspeed.textContent = `${client.progress.speedMbps} MB/s`;
         if (premain && client.progress.remainingSeconds > 0) premain.textContent = `남은 시간: ${client.progress.remainingSeconds}초`;
     }
+
+    // 2. 테이블 뷰 갱신
+    const tpbar = document.getElementById(`tpbar-${client.sessionId}`);
+    const tppct = document.getElementById(`tppct-${client.sessionId}`);
+    const tpstep = document.getElementById(`tpstep-${client.sessionId}`);
+    const tpspeed = document.getElementById(`tpspeed-${client.sessionId}`);
+    const tpremain = document.getElementById(`tpremain-${client.sessionId}`);
+
+    if (tpbar) {
+        tpbar.style.width = `${pct}%`;
+        if (tppct) tppct.textContent = `${pct}%`;
+        if (tpstep) tpstep.textContent = client.progress.step;
+        if (tpspeed && client.progress.speedMbps) tpspeed.textContent = `${client.progress.speedMbps} MB/s`;
+        if (tpremain && client.progress.remainingSeconds > 0) tpremain.textContent = `${client.progress.remainingSeconds}s`;
+    }
+
+    // 상태 뱃지 동기화
+    const tbadge = document.getElementById(`tbadge-${client.sessionId}`);
+    if (tbadge && !tbadge.classList.contains('badge-imaging')) {
+        tbadge.className = 'status-badge badge-imaging';
+        tbadge.innerHTML = '<span class="live-dot" style="width:7px;height:7px;"></span> 더빙 진행 중';
+    }
+}
+
+// --------------------------------------------------------------------------
+// 컬럼 숨김/표시 메뉴 및 우클릭 컨텍스트 메뉴
+// --------------------------------------------------------------------------
+function renderColumnSettingsMenu() {
+    elColumnCheckboxList.innerHTML = '';
+    const hiddenSet = new Set(tableConfig.hidden || []);
+
+    COLUMNS_DEF.forEach(col => {
+        const item = document.createElement('label');
+        item.className = 'column-check-item';
+
+        const isVisible = !hiddenSet.has(col.id);
+        item.innerHTML = `
+            <input type="checkbox" value="${col.id}" ${isVisible ? 'checked' : ''}>
+            <span>${escapeHtml(col.label)}</span>
+        `;
+
+        const checkbox = item.querySelector('input');
+        checkbox.addEventListener('change', () => {
+            toggleColumnVisibility(col.id, checkbox.checked);
+        });
+
+        elColumnCheckboxList.appendChild(item);
+    });
+}
+
+function toggleColumnVisibility(colId, visible) {
+    const hiddenSet = new Set(tableConfig.hidden || []);
+    if (visible) {
+        hiddenSet.delete(colId);
+    } else {
+        // 최소 1개는 보여야 함
+        const remainingCount = COLUMNS_DEF.length - hiddenSet.size;
+        if (remainingCount <= 1) {
+            alert('최소 하나의 열은 항상 표시되어야 합니다.');
+            renderColumnSettingsMenu();
+            return;
+        }
+        hiddenSet.add(colId);
+    }
+
+    tableConfig.hidden = Array.from(hiddenSet);
+    saveTableConfig();
+    renderClientsView();
+}
+
+// 헤더 우클릭 컨텍스트 메뉴
+function openHeaderContextMenu(colId, x, y) {
+    contextTargetColId = colId;
+    elHeaderContextMenu.style.left = `${Math.min(x, window.innerWidth - 200)}px`;
+    elHeaderContextMenu.style.top = `${Math.min(y, window.innerHeight - 150)}px`;
+    elHeaderContextMenu.classList.remove('hidden');
+}
+
+function closeHeaderContextMenu() {
+    elHeaderContextMenu.classList.add('hidden');
+    contextTargetColId = null;
+}
+
+// --------------------------------------------------------------------------
+// 클라이언트 카드 렌더링 (카드 뷰 모드용)
+// --------------------------------------------------------------------------
+function renderClientsGrid(clients) {
+    elClientsGrid.innerHTML = '';
+    const list = clients || getFilteredClients();
+
+    list.forEach(c => {
+        const card = createClientCardElement(c);
+        elClientsGrid.appendChild(card);
+    });
 }
 
 // 4. 배포 승인 API 호출
@@ -866,12 +1343,76 @@ elTabHistory.addEventListener('click', () => {
 
 elInputSearch.addEventListener('input', (e) => {
     searchFilter = e.target.value;
-    renderClientsGrid();
+    renderClientsView();
 });
 
 elSelectStatus.addEventListener('change', (e) => {
     statusFilter = e.target.value;
-    renderClientsGrid();
+    renderClientsView();
+});
+
+// 뷰 모드 토글 (테이블 양식 vs 카드 양식)
+elBtnViewTable.addEventListener('click', () => {
+    currentViewMode = 'TABLE';
+    elBtnViewTable.classList.add('active');
+    elBtnViewCards.classList.remove('active');
+    renderClientsView();
+});
+
+elBtnViewCards.addEventListener('click', () => {
+    currentViewMode = 'CARDS';
+    elBtnViewCards.classList.add('active');
+    elBtnViewTable.classList.remove('active');
+    renderClientsView();
+});
+
+// 열 설정 드롭다운 메뉴 토글
+elBtnToggleColumnSettings.addEventListener('click', (e) => {
+    e.stopPropagation();
+    elMenuColumnSettings.classList.toggle('hidden');
+});
+
+elMenuColumnSettings.addEventListener('click', (e) => {
+    e.stopPropagation();
+});
+
+elBtnResetTableConfig.addEventListener('click', () => {
+    if (confirm('테이블의 열 순서, 너비, 숨김 설정을 기본값으로 복원하시겠습니까?')) {
+        tableConfig = getDefaultTableConfig();
+        saveTableConfig();
+        renderClientsView();
+        elMenuColumnSettings.classList.add('hidden');
+    }
+});
+
+// 헤더 우클릭 컨텍스트 메뉴 액션
+elCtxHideColumn.addEventListener('click', () => {
+    if (contextTargetColId) {
+        toggleColumnVisibility(contextTargetColId, false);
+    }
+    closeHeaderContextMenu();
+});
+
+elCtxShowAllColumns.addEventListener('click', () => {
+    tableConfig.hidden = [];
+    saveTableConfig();
+    renderClientsView();
+    closeHeaderContextMenu();
+});
+
+elCtxResetConfig.addEventListener('click', () => {
+    tableConfig = getDefaultTableConfig();
+    saveTableConfig();
+    renderClientsView();
+    closeHeaderContextMenu();
+});
+
+// 외부 클릭 시 열 메뉴 및 컨텍스트 메뉴 닫기
+document.addEventListener('click', (e) => {
+    if (!elMenuColumnSettings.contains(e.target) && e.target !== elBtnToggleColumnSettings) {
+        elMenuColumnSettings.classList.add('hidden');
+    }
+    closeHeaderContextMenu();
 });
 
 // 파티션 모달
@@ -900,3 +1441,4 @@ elBtnCloseLogBottom.addEventListener('click', () => elModalLog.classList.add('hi
 
 // 초기 구동
 initWebSocket();
+

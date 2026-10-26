@@ -50,28 +50,38 @@ dism /Unmount-Wim /MountDir:"C:\mount" /Commit
   - `ImageDeployEngine`: DISM /Apply-Image를 통한 초고속 WIM 복원 및 UEFI 부트로더(BCDBoot) 자동 구성
   - `ProgressReporter`: 작업 단계(파티션, WIM 적용) 및 실시간 속도/진행률/오류 마스터 전송
 
-### 2. Master Server & Management Console
-- **실행 환경**: Windows 10 / 11 / Server
-- **아키텍처**: 마스터 엔진(`server.js`) + 반응형 글래스모피즘 웹 관제 대시보드 (`http://localhost:39202`)
+### 2. Master Server & Desktop Management Console
+- **실행 환경**: Windows 10 / 11 / Server (단일 데스크톱 실행파일 앱 및 브라우저 호환)
+- **아키텍처**: 내장 백엔드 엔진(`server.js`) + Electron 데스크톱 실행 앱 창 + 글래스모피즘 인터랙티브 데이터 테이블 관제
 - **핵심 모듈**:
   - `ClientSessionManager`: WinPE 클라이언트 실시간 연결/세션 상태 관리
   - `ProfileMatchingEngine`: 하드웨어 스펙 기반 파티션/이미지 자동 매칭 규칙 엔진
     - HDD 수량/용량(GB)/모델명 정규식 매칭
     - 조건 부합 시 자동 승인(Auto-Deploy) 또는 관리자 수동 승인
-  - `ImageRepository`: 모델별 OS 이미지(WIM) 카탈로그
-  - `MonitoringDashboard`: 전체 클라이언트 카드뷰, 실시간 진행률 게이지, 배포 이력(History) 자동 기록
+  - `ImageRepository`: 모델별 OS 이미지(WIM) 카탈로그 및 동적 스캔
+  - `InteractiveDataTable`: 다중 PC 데이터 테이블 뷰
+    - **순서 변경 (Drag & Drop Reordering)**: 컬럼 헤더를 드래그하여 순서 자유 배치
+    - **열 숨김/표시 (Column Visibility)**: 우측 상단 '열 설정' 및 헤더 우클릭 메뉴로 열 토글
+    - **너비 조절 (Column Resizing)**: 헤더 우측 경계선을 마우스로 드래그하여 너비 조절 (더블 클릭 시 자동 맞춤)
+    - **헤더 정렬 (Column Sorting)**: 헤더 클릭 시 오름차순(▲)/내림차순(▼) 정렬
+    - **설정 영구 보존**: 변경된 순서, 너비, 숨김, 정렬 상태가 `localStorage`에 자동 보존됨
 
 ---
 
-
 ## 🚀 빠른 시작 가이드
 
-### 1. 마스터 관리 서버 실행
+### 1. 마스터 데스크톱 실행 앱 구동 (권장)
+- **원클릭 실행**: 루트 폴더의 **`Run-Master-App.bat`** 더블 클릭!
+- 또는 CLI 명령어로 실행:
 ```powershell
+# Electron 데스크톱 앱 창 즉시 실행
 cd master
-node server.js
+npm start
 ```
-- 웹 대시보드 접속: **`http://localhost:39202`**
+
+### 2. 단일 포터블 실행파일(.exe) 생성 (배포용)
+- 루트 폴더의 **`Build-Master-Exe.bat`** 더블 클릭!
+- 빌드 결과물: `master\dist\MultiDeployOS.exe` (설치 없이 단독 실행 가능한 포터블 파일)
 
 ---
 
