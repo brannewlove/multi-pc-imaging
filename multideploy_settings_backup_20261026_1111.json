@@ -1,0 +1,86 @@
+{
+  "exportVersion": "1.0",
+  "exportedAt": "2026-10-26T02:11:17.1369691Z",
+  "serverConfig": {
+    "masterImageDir": "C:\\images",
+    "networkSharePath": "\\\\127.0.0.1\\images",
+    "clientAccessMethod": "LOCAL_OR_SHARE",
+    "lastScannedAt": "2026-10-26T00:00:00.000Z"
+  },
+  "uiSettings": {
+    "viewMode": "TABLE",
+    "tableConfig": {
+      "order": [
+        "status",
+        "ip",
+        "model",
+        "serial",
+        "mac",
+        "disks",
+        "policy",
+        "image",
+        "progress",
+        "duration",
+        "action"
+      ],
+      "hidden": [],
+      "widths": {
+        "status": 100,
+        "ip": 120,
+        "model": 180,
+        "serial": 140,
+        "mac": 140,
+        "disks": 180,
+        "policy": 180,
+        "image": 200,
+        "progress": 220,
+        "duration": 100,
+        "action": 120
+      },
+      "sort": null
+    }
+  },
+  "partitionPolicies": [
+    {
+      "id": "policy-smart-auto-gpt",
+      "name": "지능형 자동 감지 분할 (GPT 표준 권장양식)",
+      "description": "디스크 1개 시 용량(512GB 초과: 300GB / 이하: 50% 분할) 및 디스크 2개 이상 시 최소용량 OS\u002BData1/Data2 자동 GPT 구성",
+      "autoApprove": true,
+      "partitionScheme": "GPT",
+      "isSmartDynamic": true,
+      "conditions": {
+        "modelPattern": "*",
+        "diskCountMin": 1,
+        "diskCountMax": 99,
+        "targetDiskCriteria": "SMART_AUTO",
+        "targetDiskIndex": 0,
+        "minCapacityGb": 0,
+        "maxCapacityGb": 99999
+      },
+      "diskpartCommands": null,
+      "layout": null
+    }
+  ],
+  "imageCatalog": [
+    {
+      "id": "rule-generic-fallback",
+      "name": "범용 순정 Windows 11 Pro (기본 대체 규칙)",
+      "enabled": true,
+      "priority": 999,
+      "conditions": {
+        "manufacturer": "*",
+        "modelPattern": "*",
+        "minDiskGb": 60,
+        "maxDiskGb": 99999,
+        "targetDiskType": "ANY"
+      },
+      "targetImage": {
+        "imageFileName": "Win11_23H2_Universal_Clean.wim",
+        "imageIndex": 1,
+        "osVersion": "Windows 11 Pro 23H2 x64",
+        "description": "드라이버 미통합 순정 이미지 (조건 미부합 기종 공용)"
+      },
+      "isFallback": true
+    }
+  ]
+}

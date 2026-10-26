@@ -1,0 +1,33 @@
+{
+  "viewMode": "TABLE",
+  "tableConfig": {
+    "order": [
+      "status",
+      "ip",
+      "model",
+      "serial",
+      "mac",
+      "disks",
+      "policy",
+      "image",
+      "progress",
+      "duration",
+      "action"
+    ],
+    "hidden": [],
+    "widths": {
+      "status": 100,
+      "ip": 120,
+      "model": 160,
+      "serial": 130,
+      "mac": 130,
+      "disks": 170,
+      "policy": 170,
+      "image": 180,
+      "progress": 200,
+      "duration": 90,
+      "action": 120
+    },
+    "sort": null
+  }
+}

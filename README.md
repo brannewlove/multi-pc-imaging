@@ -50,49 +50,49 @@ dism /Unmount-Wim /MountDir:"C:\mount" /Commit
   - `ImageDeployEngine`: DISM /Apply-Image를 통한 초고속 WIM 복원 및 UEFI 부트로더(BCDBoot) 자동 구성
   - `ProgressReporter`: 작업 단계(파티션, WIM 적용) 및 실시간 속도/진행률/오류 마스터 전송
 
-### 2. Master Server & Desktop Management Console
-- **실행 환경**: Windows 10 / 11 / Server (단일 데스크톱 실행파일 앱 및 브라우저 호환)
-- **아키텍처**: 내장 백엔드 엔진(`server.js`) + Electron 데스크톱 실행 앱 창 + 글래스모피즘 인터랙티브 데이터 테이블 관제
+### 2. Master Management Console (Windows Native Standalone)
+- **실행 환경**: Windows 10 / 11 / Server 64-bit (순수 윈도우 네이티브 독립 실행형 앱)
+- **기술 스택**: C# (.NET 8.0 Windows Desktop App, WinForms) - **Node.js, Electron, 웹 브라우저 엔진(Chromium), HTTP 웹서버 종속성 0%**
+- **실행 바이너리**: [**`bin\MultiDeployMaster.exe`**](file:///d:/Code/multi-pc-imaging/bin/MultiDeployMaster.exe) (외부 종속성 없는 단일 실행파일)
 - **핵심 모듈**:
-  - `ClientSessionManager`: WinPE 클라이언트 실시간 연결/세션 상태 관리
-  - `ProfileMatchingEngine`: 하드웨어 스펙 기반 파티션/이미지 자동 매칭 규칙 엔진
-    - HDD 수량/용량(GB)/모델명 정규식 매칭
-    - 조건 부합 시 자동 승인(Auto-Deploy) 또는 관리자 수동 승인
-  - `ImageRepository`: 모델별 OS 이미지(WIM) 카탈로그 및 동적 스캔
-  - `InteractiveDataTable`: 다중 PC 데이터 테이블 뷰
-    - **순서 변경 (Drag & Drop Reordering)**: 컬럼 헤더를 드래그하여 순서 자유 배치
-    - **열 숨김/표시 (Column Visibility)**: 우측 상단 '열 설정' 및 헤더 우클릭 메뉴로 열 토글
-    - **너비 조절 (Column Resizing)**: 헤더 우측 경계선을 마우스로 드래그하여 너비 조절 (더블 클릭 시 자동 맞춤)
-    - **헤더 정렬 (Column Sorting)**: 헤더 클릭 시 오름차순(▲)/내림차순(▼) 정렬
-    - **설정 영구 보존**: 변경된 순서, 너비, 숨김, 정렬 상태가 `localStorage`에 자동 보존됨
+  - `UdpDiscoveryService`: UDP 39200 브로드캐스트 자동 감지 및 WinPE 에이전트에 마스터 IP 전송
+  - `TcpServerService`: TCP 39201 포트 기반 WinPE 에이전트 다중 비동기 세션 제어
+  - `SmartPartitionEngine`: 스마트 지능형 동적 파티션 자동 생성 엔진 (GPT 포맷, 512GB 초과/이하 조건 분기, 2개 이상 다중 디스크 최소 용량 OS 배치 및 Data1/Data2 자동 라벨링)
+  - `ImageMatcher`: 기종/제조사/모델명/SSD 용량별 WIM 이미지 우선순위 매칭 엔진
+  - `Native Interactive DataGridView`: 고성능 네이티브 테이블 관제 그리드
+    - **순서 변경 (Drag & Drop Reordering)**: 마우스로 컬럼 헤더를 끌어서 원하는 순서로 즉시 재배치
+    - **열 숨김/복원 (Column Visibility)**: 컬럼 헤더 우클릭 메뉴("이 열 숨기기", "모든 열 다시 표시") 및 "⚙ 테이블 열 설정" 체크리스트 모달로 개별 토글
+    - **너비 조절 (Column Resizing)**: 헤더 경계선을 드래그하여 자유자재로 너비 조정
+    - **헤더 정렬 (Column Sorting)**: 컬럼 헤더를 클릭하여 오름차순(▲)/내림차순(▼) 정렬
+    - **설정 영구 보존**: 변경된 순서, 너비, 숨김 상태가 `bin\config\ui_settings.json`에 영구 자동 저장
+  - `ConfigManager`: JSON 설정 파일 자동 관리 및 1클릭 전체 설정 백업(Export) / 복원(Import)
 
 ---
 
 ## 🚀 빠른 시작 가이드
 
-### 1. 마스터 데스크톱 실행 앱 구동 (권장)
-- **원클릭 실행**: 루트 폴더의 **`Run-Master-App.bat`** 더블 클릭!
-- 또는 CLI 명령어로 실행:
-```powershell
-# Electron 데스크톱 앱 창 즉시 실행
-cd master
-npm start
-```
+### 1. 마스터 네이티브 앱 원클릭 실행 (권장)
+- 루트 폴더의 [**`Run-Native-Master.bat`**](file:///d:/Code/multi-pc-imaging/Run-Native-Master.bat) 또는 [**`Run-Master-App.bat`**](file:///d:/Code/multi-pc-imaging/Run-Master-App.bat) 더블 클릭!
+- 실행 바이너리 직접 실행: [**`bin\MultiDeployMaster.exe`**](file:///d:/Code/multi-pc-imaging/bin/MultiDeployMaster.exe)
+- 웹페이지나 Node.js 설치 없이 즉시 네이티브 윈도우 창으로 실행됩니다.
 
-### 2. 단일 포터블 실행파일(.exe) 생성 (배포용)
-- 루트 폴더의 **`Build-Master-Exe.bat`** 더블 클릭!
-- 빌드 결과물: `master\dist\MultiDeployOS.exe` (설치 없이 단독 실행 가능한 포터블 파일)
+### 2. 마스터 네이티브 앱 소스 빌드 (선택 사항)
+- 루트 폴더의 [**`Build-Native-Master.bat`**](file:///d:/Code/multi-pc-imaging/Build-Native-Master.bat) 더블 클릭!
+- 또는 CLI 명령어로 빌드:
+```powershell
+dotnet publish MasterApp\MasterApp.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o bin
+```
+- 빌드 결과물: `bin\MultiDeployMaster.exe` (.NET 런타임이 자체 내장된 초고속 단일 포터블 실행파일)
 
 ---
 
 ### 2. 마스터 이미지 폴더 지정 및 선택 규칙 설정 방법
 
 #### ① 마스터 이미지 저장 폴더 지정
-1. 웹 대시보드 우측 상단의 **[📀 마스터 이미지 및 선택 규칙]** 버튼 클릭
+1. 상단 툴바의 **[📀 이미지 선택 규칙]** 버튼 클릭
 2. **마스터 로컬 이미지 폴더 경로**: `.wim` / `.esd` 파일들이 위치한 디렉터리 경로 입력 (예: `D:\Images` 또는 `C:\images`)
 3. **WinPE 클라이언트 접근 공유 경로**: WinPE에서 접근할 SMB 네트워크 경로 입력 (예: `\\192.168.1.50\images`)
-4. **전송 방식 선택**: `로컬/네트워크 공유` (권장) 또는 `HTTP 스트리밍`
-5. **[폴더 저장 & WIM 스캔]** 버튼을 누르면 해당 폴더 내의 WIM 파일 목록과 용량이 실시간 칩 배지로 표시됩니다.
+4. **[폴더 저장 & WIM 스캔]** 버튼을 누르면 해당 폴더 내의 WIM 파일 목록과 용량이 실시간 칩 배지로 표시됩니다.
 
 #### ② 기종별 자동 이미지 선택 규칙 (Matching Rules) 구성
 - 타깃 PC가 WinPE로 부팅되면 등록된 규칙 목록을 **우선순위(Priority #1, #2, ...) 순서대로 대조**하여 적합한 WIM 이미지를 자동 할당합니다.
@@ -103,14 +103,10 @@ npm start
   - **스토리지 인터페이스**: `NVMe`, `SATA`, `ANY`
 - **조작 기능**:
   - `▲` / `▼`: 규칙 평가 우선순위 변경
-  - `✅ 활성` / `⚪ 비활성`: 규칙 사용 여부 즉시 토글
   - `수정` / `삭제`: 매칭 조건 및 배포 WIM 이미지 파일명 수정
-  - `+ 새 선택 규칙 추가`: 새로운 모델에 대한 WIM 규칙 추가
+  - `+ 신규 규칙`: 새로운 모델에 대한 WIM 규칙 추가
 - **기본 대체 규칙 (Fallback Rule)**:
   - 어떤 전용 규칙에도 부합하지 않는 기종이 부팅되었을 때 공용으로 배포할 범용 순정 WIM 이미지(`Win11_23H2_Universal_Clean.wim`)가 최하단 우선순위로 자동 작동합니다.
-
-#### ③ 실시간 규칙 매칭 시뮬레이터 (Simulator)
-- 모달 하단 **[🧪 3. 규칙 매칭 실시간 테스트]** 영역에서 제조사, 모델명, SSD 용량을 입력하고 **[매칭 테스트]**를 클릭하면 해당 사양에 어떤 규칙과 어떤 WIM 파일이 선택되는지 즉시 검증할 수 있습니다.
 
 ---
 
@@ -119,7 +115,7 @@ npm start
 cd simulator
 node simulate_clients.js
 ```
-- 다양한 제조사(삼성 갤럭시북, 레노버 씽크패드, 델 래티튜드, LG 그램 등)가 동시 접속하며 지정된 규칙에 따라 알맞은 WIM 이미지가 자동 배포되는 전 과정을 웹 대시보드에서 실시간 모니터링할 수 있습니다.
+- 다양한 제조사(삼성 갤럭시북, 레노버 씽크패드, 델 래티튜드, LG 그램 등)가 동시 접속하며 지정된 규칙에 따라 알맞은 WIM 이미지가 자동 배포되는 전 과정을 마스터 네이티브 앱에서 실시간 모니터링할 수 있습니다.
 
 ---
 

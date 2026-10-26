@@ -181,11 +181,42 @@ function handleWsMessage(event, data) {
         if (data.serverConfig) serverConfig = data.serverConfig;
         if (data.scannedImages) scannedImages = data.scannedImages;
 
+        // 서버에 저장된 UI 레이아웃 설정이 있으면 자동 동기화 (git 패치/다른 PC 환경 지원)
+        if (data.uiSettings) {
+            if (data.uiSettings.viewMode) {
+                currentViewMode = data.uiSettings.viewMode;
+                if (currentViewMode === 'CARDS') {
+                    elBtnViewCards.classList.add('active');
+                    elBtnViewTable.classList.remove('active');
+                } else {
+                    elBtnViewTable.classList.add('active');
+                    elBtnViewCards.classList.remove('active');
+                }
+            }
+            if (data.uiSettings.tableConfig) {
+                const s = data.uiSettings.tableConfig;
+                tableConfig = {
+                    order: s.order || tableConfig.order,
+                    hidden: s.hidden || tableConfig.hidden,
+                    widths: { ...tableConfig.widths, ...(s.widths || {}) },
+                    sort: s.sort !== undefined ? s.sort : tableConfig.sort
+                };
+            }
+        }
+
         updateAutoApproveUI();
 
         clientsMap.clear();
         (data.clients || []).forEach(c => clientsMap.set(c.sessionId, c));
         renderAll();
+    } else if (event === 'UI_SETTINGS_UPDATED') {
+        if (data.uiSettings?.tableConfig) {
+            tableConfig = data.uiSettings.tableConfig;
+            renderClientsView();
+        }
+    } else if (event === 'SETTINGS_IMPORTED') {
+        alert('서버로부터 백업된 모든 설정이 복원되었습니다. 화면을 갱신합니다.');
+        window.location.reload();
     } else if (event === 'CLIENT_REGISTERED' || event === 'CLIENT_STATUS_CHANGE') {
         clientsMap.set(data.sessionId, data.client);
         renderAll();
@@ -286,6 +317,21 @@ function saveTableConfig() {
     } catch (e) {
         console.error('[-] 테이블 설정 저장 실패:', e);
     }
+    syncUiSettingsToServer();
+}
+
+// 서버 파일(config/ui_settings.json)에 UI 설정 저장 (git 패치 및 환경 이전 지원)
+function syncUiSettingsToServer() {
+    try {
+        fetch('/api/ui-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                viewMode: currentViewMode,
+                tableConfig: tableConfig
+            })
+        }).catch(err => console.warn('[-] 서버 UI 설정 동기화 실패:', err));
+    } catch (e) { }
 }
 
 // 2. 렌더링 메인 루틴
@@ -658,8 +704,8 @@ function renderTableBody(clients) {
         const ip = c.network?.ipAddress || '127.0.0.1';
 
         const disk0 = (c.disks && c.disks.length > 0) ? c.disks[0] : null;
-        const diskSummary = disk0 
-            ? `[Disk 0] ${disk0.friendlyName || 'SSD'} (${disk0.busType || 'NVMe'}, ${(disk0.sizeGb || 0).toFixed(0)} GB)` 
+        const diskSummary = disk0
+            ? `[Disk 0] ${disk0.friendlyName || 'SSD'} (${disk0.busType || 'NVMe'}, ${(disk0.sizeGb || 0).toFixed(0)} GB)`
             : '장착된 디스크 없음';
 
         const policyName = c.matchedPolicy?.name || '맞춤 권장양식 자동 매칭';
@@ -950,8 +996,8 @@ function renderHistoryTable() {
         const tr = document.createElement('tr');
         const dt = new Date(h.completedAt).toLocaleString();
         const isSuccess = h.status === 'SUCCESS';
-        const badge = isSuccess 
-            ? '<span class="status-badge badge-success">성공</span>' 
+        const badge = isSuccess
+            ? '<span class="status-badge badge-success">성공</span>'
             : '<span class="status-badge badge-failed">실패</span>';
 
         tr.innerHTML = `
@@ -1022,8 +1068,8 @@ function openPolicyEditor(policyId = null) {
         elInputPolicyEditMinCap.value = p.conditions?.minCapacityGb ?? 0;
         elInputPolicyEditMaxCap.value = p.conditions?.maxCapacityGb ?? 9999;
         elCheckPolicyEditAutoApprove.checked = !!p.autoApprove;
-        elTextareaPolicyEditCommands.value = Array.isArray(p.diskpartCommands) 
-            ? p.diskpartCommands.join('\n') 
+        elTextareaPolicyEditCommands.value = Array.isArray(p.diskpartCommands)
+            ? p.diskpartCommands.join('\n')
             : (p.diskpartCommands || '');
     } else {
         elModalPolicyEditorTitle.textContent = '새 파티션 권장양식 등록';
@@ -1386,7 +1432,7 @@ async function saveAndScanMasterFolder() {
 
 // 규칙 우선순위 변경
 function moveRulePriority(ruleId, direction) {
-    const nonFallback = imageCatalog.filter(r => !r.isFallback).sort((a,b) => (a.priority||999) - (b.priority||999));
+    const nonFallback = imageCatalog.filter(r => !r.isFallback).sort((a, b) => (a.priority || 999) - (b.priority || 999));
     const idx = nonFallback.findIndex(r => r.id === ruleId);
     if (idx < 0) return;
 
@@ -1446,7 +1492,7 @@ function openImageRuleEditor(ruleId = null) {
         elInputImageRuleEditMinDisk.value = r.conditions?.minDiskGb ?? 100;
         elInputImageRuleEditMaxDisk.value = r.conditions?.maxDiskGb ?? 4000;
         elCheckImageRuleEditEnabled.checked = r.enabled !== false;
-        
+
         const wimName = r.targetImage?.imageFileName || r.imageFileName || defaultWim;
         elInputImageRuleEditWim.value = wimName;
         elInputImageRuleEditIndex.value = r.targetImage?.imageIndex || 1;
@@ -1536,7 +1582,7 @@ async function saveImageRuleFromEditor() {
     }
 
     // 우선순위 재정렬
-    const nonFallback = imageCatalog.filter(r => !r.isFallback).sort((a,b) => (a.priority||999) - (b.priority||999));
+    const nonFallback = imageCatalog.filter(r => !r.isFallback).sort((a, b) => (a.priority || 999) - (b.priority || 999));
     nonFallback.forEach((r, i) => r.priority = i + 1);
 
     renderImageRulesList();
@@ -1560,9 +1606,9 @@ async function deleteImageRule(ruleId) {
     }
 
     imageCatalog = imageCatalog.filter(r => r.id !== ruleId);
-    
+
     // 우선순위 1부터 재부여
-    const nonFallback = imageCatalog.filter(r => !r.isFallback).sort((a,b) => (a.priority||999) - (b.priority||999));
+    const nonFallback = imageCatalog.filter(r => !r.isFallback).sort((a, b) => (a.priority || 999) - (b.priority || 999));
     nonFallback.forEach((r, i) => r.priority = i + 1);
 
     renderImageRulesList();
@@ -1654,7 +1700,7 @@ async function runMatchSimulationTest() {
 function openClientLog(sessionId) {
     const client = clientsMap.get(sessionId);
     elLogTitle.textContent = `[${sessionId}] 상세 작업 로그`;
-    
+
     let sampleLogs = [
         `[INFO] [WinPE] Hardware scanner initialized.`,
         `[INFO] System: ${client?.system?.modelName || 'Unknown'} (S/N: ${client?.system?.serialNumber || 'N/A'})`,
@@ -1725,6 +1771,7 @@ elBtnViewTable.addEventListener('click', () => {
     elBtnViewTable.classList.add('active');
     elBtnViewCards.classList.remove('active');
     renderClientsView();
+    syncUiSettingsToServer();
 });
 
 elBtnViewCards.addEventListener('click', () => {
@@ -1732,6 +1779,7 @@ elBtnViewCards.addEventListener('click', () => {
     elBtnViewCards.classList.add('active');
     elBtnViewTable.classList.remove('active');
     renderClientsView();
+    syncUiSettingsToServer();
 });
 
 // 열 설정 드롭다운 메뉴 토글
@@ -1828,24 +1876,6 @@ elBtnSaveAndScanFolder.addEventListener('click', saveAndScanMasterFolder);
 elBtnAddNewImageRule.addEventListener('click', addNewImageRule);
 elBtnSaveAllImageRules.addEventListener('click', () => saveAllImageRulesToServer(false));
 elBtnRunMatchTest.addEventListener('click', runMatchSimulationTest);
-
-// 이미지 선택 규칙 에디터 이벤트 바인딩
-if (elBtnCloseImageRuleEditor) {
-    elBtnCloseImageRuleEditor.addEventListener('click', closeImageRuleEditor);
-}
-if (elBtnCancelImageRuleEdit) {
-    elBtnCancelImageRuleEdit.addEventListener('click', closeImageRuleEditor);
-}
-if (elBtnSaveImageRuleEdit) {
-    elBtnSaveImageRuleEdit.addEventListener('click', saveImageRuleFromEditor);
-}
-if (elSelectImageRuleEditScannedHelper) {
-    elSelectImageRuleEditScannedHelper.addEventListener('change', (e) => {
-        if (e.target.value) {
-            elInputImageRuleEditWim.value = e.target.value;
-        }
-    });
-}
 
 // 로그 모달
 elBtnCloseLog.addEventListener('click', () => elModalLog.classList.add('hidden'));

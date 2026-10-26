@@ -48,6 +48,17 @@
                     </div>
                 </div>
 
+                <button class="btn btn-secondary" id="btnExportSettings" title="모든 설정(파티션, 이미지규칙, UI배치, 서버설정)을 JSON 파일로 백업">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    설정 백업(내보내기)
+                </button>
+
+                <button class="btn btn-secondary" id="btnImportSettings" title="백업된 설정 JSON 파일을 불러와 복원">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    설정 복원(가져오기)
+                </button>
+                <input type="file" id="inputImportSettingsFile" accept=".json" style="display:none;">
+
                 <button class="btn btn-secondary" id="btnOpenPolicies">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                     파티션 권장양식

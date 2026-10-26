@@ -14,6 +14,7 @@ const PATH_POLICIES = path.join(__dirname, 'config', 'partition_policies.json');
 const PATH_IMAGES = path.join(__dirname, 'config', 'image_catalog.json');
 const PATH_HISTORY = path.join(__dirname, 'config', 'history.json');
 const PATH_SERVER_CONFIG = path.join(__dirname, 'config', 'server_config.json');
+const PATH_UI_SETTINGS = path.join(__dirname, 'config', 'ui_settings.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 // 메모리 상태 관리
@@ -29,11 +30,44 @@ let serverConfig = {
     lastScannedAt: new Date().toISOString()
 };
 
+let uiSettings = {
+    viewMode: "TABLE",
+    tableConfig: {
+        order: ["status", "ip", "model", "serial", "mac", "disks", "policy", "image", "progress", "duration", "action"],
+        hidden: [],
+        widths: {
+            status: 100, ip: 120, model: 160, serial: 130, mac: 130,
+            disks: 170, policy: 170, image: 180, progress: 200, duration: 90, action: 120
+        },
+        sort: null
+    }
+};
+
 // 연결된 WinPE 클라이언트 세션 목록: Map<sessionId, ClientSession>
 const connectedClients = new Map();
 
 // 웹소켓 대시보드 클라이언트 목록
 const webSocketClients = new Set();
+
+// 환경 독립적 이미지 디렉터리 경로 자동 감지 및 보정
+function resolveEffectiveImageDir(configuredDir) {
+    if (configuredDir && fs.existsSync(configuredDir)) {
+        return configuredDir;
+    }
+    const localSample = path.resolve(__dirname, '..', 'sample_images');
+    if (fs.existsSync(localSample)) {
+        return localSample;
+    }
+    const standardDir = 'C:\\images';
+    try {
+        if (!fs.existsSync(standardDir)) {
+            fs.mkdirSync(standardDir, { recursive: true });
+        }
+        return standardDir;
+    } catch (e) {
+        return configuredDir || standardDir;
+    }
+}
 
 // 1. 설정 로드 및 저장
 function loadConfigs() {
@@ -44,6 +78,9 @@ function loadConfigs() {
     } catch (e) {
         console.error('[-] 서버 설정 로드 오류:', e.message);
     }
+
+    // 다른 환경에서 가져왔을 때 없는 절대 경로 보정
+    serverConfig.masterImageDir = resolveEffectiveImageDir(serverConfig.masterImageDir);
 
     try {
         if (fs.existsSync(PATH_POLICIES)) {
@@ -59,6 +96,14 @@ function loadConfigs() {
         }
     } catch (e) {
         console.error('[-] 이미지 카탈로그 로드 오류:', e.message);
+    }
+
+    try {
+        if (fs.existsSync(PATH_UI_SETTINGS)) {
+            uiSettings = { ...uiSettings, ...JSON.parse(fs.readFileSync(PATH_UI_SETTINGS, 'utf-8')) };
+        }
+    } catch (e) {
+        console.error('[-] UI 레이아웃 설정 로드 오류:', e.message);
     }
 
     try {
@@ -79,11 +124,27 @@ function saveServerConfig() {
     }
 }
 
+function saveUiSettings() {
+    try {
+        fs.writeFileSync(PATH_UI_SETTINGS, JSON.stringify(uiSettings, null, 2), 'utf-8');
+    } catch (e) {
+        console.error('[-] UI 레이아웃 설정 저장 오류:', e.message);
+    }
+}
+
 function saveImageCatalog() {
     try {
         fs.writeFileSync(PATH_IMAGES, JSON.stringify(imageCatalog, null, 2), 'utf-8');
     } catch (e) {
         console.error('[-] 이미지 카탈로그 저장 오류:', e.message);
+    }
+}
+
+function savePartitionPolicies() {
+    try {
+        fs.writeFileSync(PATH_POLICIES, JSON.stringify(partitionPolicies, null, 2), 'utf-8');
+    } catch (e) {
+        console.error('[-] 파티션 정책 저장 오류:', e.message);
     }
 }
 
@@ -140,7 +201,7 @@ function scanMasterImageFolder(dirPath) {
                             modifiedAt: stat.mtime.toISOString(),
                             extension: ext.substring(1).toUpperCase()
                         });
-                    } catch (statErr) {}
+                    } catch (statErr) { }
                 }
             }
         }
@@ -439,6 +500,7 @@ function getDashboardState() {
         partitionPolicies,
         imageCatalog,
         serverConfig,
+        uiSettings,
         scannedImages: scanResult,
         deployHistory: deployHistory.slice(-50).reverse(), // 최근 50건
         globalAutoApprove
@@ -457,7 +519,7 @@ function approveClientDeploy(sessionId, customImage = null) {
 
     const targetFileName = imageRule?.targetImage?.imageFileName || imageRule?.imageFileName || 'Win11_Universal.wim';
     const targetIndex = imageRule?.targetImage?.imageIndex || imageRule?.imageIndex || 1;
-    
+
     // 로컬 디렉터리 기반 경로 및 네트워크 공유/HTTP 경로 구성
     const localImagePath = path.join(serverConfig.masterImageDir, targetFileName);
     const networkImagePath = path.join(serverConfig.networkSharePath, targetFileName);
@@ -659,7 +721,7 @@ udpServer.on('message', (msg, rinfo) => {
             }) + '\n';
             udpServer.send(ackMsg, rinfo.port, rinfo.address);
         }
-    } catch (e) {}
+    } catch (e) { }
 });
 udpServer.bind(PORT_UDP_DISCOVERY, '0.0.0.0', () => {
     console.log(`[+] UDP 브로드캐스트 탐색 서버 구동: 0.0.0.0:${PORT_UDP_DISCOVERY}`);
@@ -683,7 +745,7 @@ const httpServer = http.createServer((req, res) => {
     // -------------------------------------------------------------
     // REST API 라우팅
     // -------------------------------------------------------------
-    
+
     // (1) 전체 상태 조회
     if (url.pathname === '/api/state') {
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -910,33 +972,6 @@ const httpServer = http.createServer((req, res) => {
         return;
     }
 
-    // (9-1) 파티션 정책 삭제
-    if (url.pathname === '/api/policy/delete' && req.method === 'POST') {
-        let body = '';
-        req.on('data', chunk => body += chunk);
-        req.on('end', () => {
-            try {
-                const payload = JSON.parse(body);
-                const targetId = payload.policyId || payload.id;
-                if (!targetId) {
-                    res.writeHead(400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: '삭제할 정책 ID(id/policyId)가 전달되지 않았습니다.' }));
-                    return;
-                }
-                partitionPolicies = partitionPolicies.filter(p => p.id !== targetId);
-                fs.writeFileSync(PATH_POLICIES, JSON.stringify(partitionPolicies, null, 2), 'utf-8');
-                reMatchConnectedClients();
-                broadcastToDashboard('POLICIES_UPDATED', { partitionPolicies });
-                res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-                res.end(JSON.stringify({ success: true, policies: partitionPolicies }));
-            } catch (e) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: e.message }));
-            }
-        });
-        return;
-    }
-
     // -------------------------------------------------------------
     // 마스터 이미지 파일 HTTP 다운로드/스트리밍 제공 (/images/:filename)
     // -------------------------------------------------------------
@@ -1071,11 +1106,11 @@ function handleIncomingWsFrame(socket, buf) {
     const opcode = buf[0] & 0x0f;
     if (opcode === 0x8) { // Connection Close
         webSocketClients.delete(socket);
-        try { socket.end(); } catch (e) {}
+        try { socket.end(); } catch (e) { }
         return;
     }
     if (opcode === 0x9) { // Ping -> Pong
-        try { socket.write(Buffer.from([0x8A, 0x00])); } catch (e) {}
+        try { socket.write(Buffer.from([0x8A, 0x00])); } catch (e) { }
         return;
     }
 }

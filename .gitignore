@@ -10,4 +10,9 @@ node_modules/
 **/node_modules/
 master/dist/
 dist/
+MasterApp/bin/
+MasterApp/obj/
+bin/
+/bin/
+*.log
 
