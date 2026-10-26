@@ -21,13 +21,50 @@ static std::string ExtractJsonString(const std::string& json, const std::string&
         pos++;
         size_t endPos = pos;
         while (endPos < json.length()) {
-            if (json[endPos] == '"' && (endPos == 0 || json[endPos - 1] != '\\')) {
-                break;
+            if (json[endPos] == '"') {
+                // 이스케이프된 따옴표(\")인지 확인하기 위해 선행 역슬래시 개수 계산
+                size_t bsCount = 0;
+                size_t k = endPos;
+                while (k > pos && json[k - 1] == '\\') {
+                    bsCount++;
+                    k--;
+                }
+                if (bsCount % 2 == 0) {
+                    // 짝수 개 역슬래시 (0, 2, 4...) -> 따옴표는 이스케이프되지 않은 닫는 따옴표
+                    break;
+                }
             }
             endPos++;
         }
         if (endPos < json.length()) {
             return SimpleJson::UnescapeString(json.substr(pos, endPos - pos));
+        }
+    }
+    return "";
+}
+
+// WinPE 환경에서 USB나 로컬 디스크에 보관된 WIM 파일 자동 탐색
+static std::string FindLocalWimPath(const std::string& imageName) {
+    if (imageName.empty()) return "";
+    
+    // WinPE에서 마운트 가능한 드라이브 문자(D~Z, C)
+    const char driveLetters[] = "DEFGHIJKLMNOPQRSTUVWXYZC";
+    const std::vector<std::string> subDirs = {
+        "images\\",
+        "Images\\",
+        "sources\\",
+        "Sources\\",
+        ""
+    };
+
+    for (int i = 0; driveLetters[i] != '\0'; ++i) {
+        char drive = driveLetters[i];
+        for (const auto& sub : subDirs) {
+            std::string candidate = std::string(1, drive) + ":\\" + sub + imageName;
+            DWORD attr = GetFileAttributesA(candidate.c_str());
+            if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+                return candidate;
+            }
         }
     }
     return "";
@@ -223,12 +260,83 @@ int main(int argc, char* argv[]) {
             client.SendJsonMessage(p1.ToString());
 
             // (2) 이미지 적용 (더빙)
-            // 실제 WIM 파일 유효 경로 결정 (로컬 경로 우선 -> 네트워크 공유 경로 -> 기본 C:\images)
-            std::string effectiveImagePath = imageLocalPath;
-            DWORD fileAttr = GetFileAttributesA(effectiveImagePath.c_str());
-            if (fileAttr == INVALID_FILE_ATTRIBUTES && !imageNetworkPath.empty()) {
-                effectiveImagePath = imageNetworkPath;
+            // 실제 WIM 파일 유효 경로 결정:
+            // 1순위: 로컬 스토리지 / USB 드라이브 자동 검색 (가장 빠르고 100% 안정적)
+            // 2순위: 마스터가 전달한 로컬 경로 (동일 PC 테스트용)
+            // 3순위: 네트워크 공유 경로 (UNC 경로 및 Z: 드라이브 자동 마운트)
+            // 4순위: 기본 C:\images
+            std::string effectiveImagePath = "";
+
+            // 1순위: USB / 로컬 드라이브 자동 스캔
+            std::string localWim = FindLocalWimPath(imageName.empty() ? "Win11_Universal.wim" : imageName);
+            if (!localWim.empty()) {
+                effectiveImagePath = localWim;
+                std::cout << "[+] 로컬 드라이브(USB 메모리 등)에서 WIM 파일을 발견했습니다: " << effectiveImagePath << "\n";
             }
+
+            // 2순위: imageLocalPath 검증
+            if (effectiveImagePath.empty() && !imageLocalPath.empty()) {
+                DWORD attr = GetFileAttributesA(imageLocalPath.c_str());
+                if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+                    effectiveImagePath = imageLocalPath;
+                }
+            }
+
+            // 3순위: 네트워크 공유 경로 처리
+            if (effectiveImagePath.empty() && !imageNetworkPath.empty()) {
+                std::string netPath = imageNetworkPath;
+                // 앞뒤 공백 및 따옴표 제거
+                while (!netPath.empty() && (netPath.front() == ' ' || netPath.front() == '"' || netPath.front() == '\'')) netPath.erase(netPath.begin());
+                while (!netPath.empty() && (netPath.back() == ' ' || netPath.back() == '"' || netPath.back() == '\'')) netPath.pop_back();
+
+                // 127.0.0.1 또는 localhost는 WinPE 클라이언트 입장에서 자기 자신이므로 실제 마스터 IP로 치환
+                size_t l1 = netPath.find("127.0.0.1");
+                if (l1 != std::string::npos) netPath.replace(l1, 9, masterIp);
+                size_t l2 = netPath.find("localhost");
+                if (l2 != std::string::npos) netPath.replace(l2, 9, masterIp);
+
+                // UNC 경로인 경우 (예: \\192.168.0.50\images\Win11_Universal.wim)
+                if (netPath.rfind("\\\\", 0) == 0) {
+                    DWORD attr = GetFileAttributesA(netPath.c_str());
+                    if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+                        // 직접 UNC 접근 가능
+                        effectiveImagePath = netPath;
+                    } else {
+                        // UNC 직접 접근 불가 시 WinPE SMB 세션 확보를 위해 Z: 드라이브 마운트 시도
+                        size_t p1 = netPath.find('\\', 2);
+                        if (p1 != std::string::npos) {
+                            size_t p2 = netPath.find('\\', p1 + 1);
+                            std::string uncShare = (p2 != std::string::npos) ? netPath.substr(0, p2) : netPath;
+                            std::string subFile = (p2 != std::string::npos) ? netPath.substr(p2 + 1) : imageName;
+
+                            std::cout << "[*] SMB 네트워크 공유 연결 시도: " << uncShare << " -> Z:\n";
+                            system("net use Z: /delete /y >nul 2>&1");
+
+                            std::string netCmd = "net use Z: \"" + uncShare + "\" /persistent:no >nul 2>&1";
+                            int r = system(netCmd.c_str());
+                            if (r != 0) {
+                                // 게스트 권한으로 재시도
+                                std::string guestCmd = "net use Z: \"" + uncShare + "\" \"\" /user:guest /persistent:no >nul 2>&1";
+                                system(guestCmd.c_str());
+                            }
+
+                            std::string zCandidate = "Z:\\" + subFile;
+                            DWORD zAttr = GetFileAttributesA(zCandidate.c_str());
+                            if (zAttr != INVALID_FILE_ATTRIBUTES && !(zAttr & FILE_ATTRIBUTE_DIRECTORY)) {
+                                effectiveImagePath = zCandidate;
+                                std::cout << "[+] Z: 드라이브 마운트 성공 및 WIM 파일 확인: " << effectiveImagePath << "\n";
+                            } else {
+                                effectiveImagePath = netPath;
+                            }
+                        } else {
+                            effectiveImagePath = netPath;
+                        }
+                    }
+                } else {
+                    effectiveImagePath = netPath;
+                }
+            }
+
             if (effectiveImagePath.empty()) {
                 effectiveImagePath = "C:\\images\\" + (imageName.empty() ? "install.wim" : imageName);
             }

@@ -162,8 +162,31 @@ namespace MultiDeployOS.Master.Services
                 string targetFileName = imageRule.TargetImage?.ImageFileName ?? "Win11_Universal.wim";
                 int targetIndex = imageRule.TargetImage?.ImageIndex ?? 1;
 
-                string localPath = Path.Combine(serverConfig.MasterImageDir, targetFileName);
-                string networkPath = Path.Combine(serverConfig.NetworkSharePath, targetFileName);
+                string masterDir = (serverConfig.MasterImageDir ?? @"C:\images").Trim().Trim('"', '\'');
+                string sharePath = (serverConfig.NetworkSharePath ?? @"\\127.0.0.1\images").Trim().Trim('"', '\'');
+
+                // 슬래시 통일
+                masterDir = masterDir.Replace('/', '\\');
+                sharePath = sharePath.Replace('/', '\\');
+
+                // 127.0.0.1 또는 localhost 자동 치환 (클라이언트와 연결된 실제 서버 LAN IP 사용)
+                string serverLanIp = "127.0.0.1";
+                if (session.SocketClient?.Client?.LocalEndPoint is IPEndPoint ep && ep.Address != null)
+                {
+                    serverLanIp = ep.Address.ToString();
+                }
+                if (sharePath.Contains("127.0.0.1")) sharePath = sharePath.Replace("127.0.0.1", serverLanIp);
+                if (sharePath.Contains("localhost")) sharePath = sharePath.Replace("localhost", serverLanIp);
+
+                // localPath 계산 (이미 .wim 파일명이 포함되어 있다면 중복 결합 방지)
+                string localPath = masterDir.EndsWith(".wim", StringComparison.OrdinalIgnoreCase) || masterDir.EndsWith(".esd", StringComparison.OrdinalIgnoreCase)
+                    ? masterDir
+                    : Path.Combine(masterDir.TrimEnd('\\'), targetFileName);
+
+                // networkPath 계산 (이미 .wim 파일명이 포함되어 있다면 중복 결합 방지)
+                string networkPath = sharePath.EndsWith(".wim", StringComparison.OrdinalIgnoreCase) || sharePath.EndsWith(".esd", StringComparison.OrdinalIgnoreCase)
+                    ? sharePath
+                    : Path.Combine(sharePath.TrimEnd('\\'), targetFileName);
 
                 var deployPayload = new
                 {
@@ -183,7 +206,7 @@ namespace MultiDeployOS.Master.Services
                             imageLocalPath = localPath,
                             imageNetworkPath = networkPath,
                             sourceType = serverConfig.ClientAccessMethod ?? "LOCAL_OR_SHARE",
-                            sourceUrl = $"http://127.0.0.1:39202/images/{Uri.EscapeDataString(targetFileName)}",
+                            sourceUrl = $"http://{serverLanIp}:39202/images/{Uri.EscapeDataString(targetFileName)}",
                             targetDriveLetter = "W:",
                             bootDriveLetter = "S:"
                         },

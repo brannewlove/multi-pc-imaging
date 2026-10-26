@@ -23,12 +23,40 @@ DeployResult ApplyWimImage(const DeployParams& params, ProgressCallback onProgre
     DeployResult result;
     auto startTime = std::chrono::steady_clock::now();
 
+    // 대상 드라이브 정규화 (예: "W:", "W:\", "W" -> "W:")
+    std::string cleanTarget = params.targetDrive;
+    while (!cleanTarget.empty() && (cleanTarget.front() == ' ' || cleanTarget.front() == '"' || cleanTarget.front() == '\'')) cleanTarget.erase(cleanTarget.begin());
+    while (!cleanTarget.empty() && (cleanTarget.back() == ' ' || cleanTarget.back() == '"' || cleanTarget.back() == '\'' || cleanTarget.back() == '\\' || cleanTarget.back() == '/')) cleanTarget.pop_back();
+    if (cleanTarget.length() == 1) cleanTarget += ":";
+    if (cleanTarget.empty()) cleanTarget = "W:";
+
+    // 부트 드라이브 정규화 (예: "S:", "S:\", "S" -> "S:")
+    std::string cleanBoot = params.bootDrive;
+    while (!cleanBoot.empty() && (cleanBoot.front() == ' ' || cleanBoot.front() == '"' || cleanBoot.front() == '\'')) cleanBoot.erase(cleanBoot.begin());
+    while (!cleanBoot.empty() && (cleanBoot.back() == ' ' || cleanBoot.back() == '"' || cleanBoot.back() == '\'' || cleanBoot.back() == '\\' || cleanBoot.back() == '/')) cleanBoot.pop_back();
+    if (cleanBoot.length() == 1) cleanBoot += ":";
+    if (cleanBoot.empty()) cleanBoot = "S:";
+
+    // WIM 이미지 파일 경로 정규화 (따옴표 제거, 슬래시 통일, 끝 슬래시 제거)
+    std::string cleanImage = params.imagePath;
+    while (!cleanImage.empty() && (cleanImage.front() == ' ' || cleanImage.front() == '"' || cleanImage.front() == '\'')) cleanImage.erase(cleanImage.begin());
+    while (!cleanImage.empty() && (cleanImage.back() == ' ' || cleanImage.back() == '"' || cleanImage.back() == '\'')) cleanImage.pop_back();
+    for (char& c : cleanImage) {
+        if (c == '/') c = '\\';
+    }
+    while (cleanImage.length() > 3 && cleanImage.back() == '\\') cleanImage.pop_back();
+
+    std::wstring wCleanImage(cleanImage.begin(), cleanImage.end());
+    std::wstring wCleanTarget(cleanTarget.begin(), cleanTarget.end());
+    std::wstring wCleanBoot(cleanBoot.begin(), cleanBoot.end());
+
     // 1. DISM /Apply-Image 명령 구성
-    // 예: dism.exe /Apply-Image /ImageFile:"Z:\images\win11.wim" /Index:1 /ApplyDir:W:
-    std::wstring cmdLine = L"dism.exe /Apply-Image /ImageFile:\"" + 
-        std::wstring(params.imagePath.begin(), params.imagePath.end()) + 
+    // 주의: /ApplyDir:"W:\" 처럼 끝에 \" 가 오면 Windows CommandLineToArgvW 파서에서
+    // 따옴표가 이스케이프되어 인자 내부로 들어가 ERROR_INVALID_NAME(123)이 발생합니다.
+    // 드라이브 루트(W:\)는 공백이 없으므로 따옴표 없이 /ApplyDir:W:\ 로 전달하는 것이 안전합니다.
+    std::wstring cmdLine = L"dism.exe /Apply-Image /ImageFile:\"" + wCleanImage + 
         L"\" /Index:" + std::to_wstring(params.imageIndex) + 
-        L" /ApplyDir:\"" + std::wstring(params.targetDrive.begin(), params.targetDrive.end()) + L"\\\"";
+        L" /ApplyDir:" + wCleanTarget + L"\\";
 
     SECURITY_ATTRIBUTES sa = {};
     sa.nLength = sizeof(SECURITY_ATTRIBUTES);
@@ -117,16 +145,24 @@ DeployResult ApplyWimImage(const DeployParams& params, ProgressCallback onProgre
         result.success = false;
         std::string extraErr = "";
         if (exitCode == 2 || exitCode == 3) {
-            extraErr = " (WIM 파일 경로를 찾을 수 없음: " + params.imagePath + ")";
+            extraErr = " (WIM 파일 경로를 찾을 수 없음: " + cleanImage + ")";
+        } else if (exitCode == 5) {
+            extraErr = " (공유 폴더 접근 거부됨 ERROR_ACCESS_DENIED - 권한 필요)";
+        } else if (exitCode == 67) {
+            extraErr = " (네트워크 공유 이름 오류 ERROR_BAD_NET_NAME - 서버 IP/공유이름 확인 필요: " + cleanImage + ")";
         } else if (exitCode == 87) {
-            extraErr = " (DISM 매개변수 형식 오류)";
+            extraErr = " (DISM 매개변수 형식 오류 ERROR_INVALID_PARAMETER)";
+        } else if (exitCode == 123) {
+            extraErr = " (경로 구문 오류 ERROR_INVALID_NAME - 잘못된 파일명/공유경로 또는 특수문자: " + cleanImage + ")";
+        } else if (exitCode == 1326) {
+            extraErr = " (네트워크 로그인 실패 ERROR_LOGON_FAILURE - 사용자명/비밀번호 확인)";
         }
         result.errorMessage = "DISM 실패(코드 " + std::to_string(exitCode) + ")" + extraErr;
         return result;
     }
 
     // 2. 부트로더 생성 (BCDBoot)
-    if (params.runBcdBoot && !params.bootDrive.empty()) {
+    if (params.runBcdBoot && !cleanBoot.empty()) {
         if (onProgress) {
             DeployProgress prog;
             prog.step = "UEFI 부트로더 생성 (BCDBoot)";
@@ -136,12 +172,8 @@ DeployResult ApplyWimImage(const DeployParams& params, ProgressCallback onProgre
             onProgress(prog);
         }
 
-        // bcdboot W:\Windows /s S: /f UEFI
-        std::wstring bcdCmd = L"bcdboot.exe \"" + 
-            std::wstring(params.targetDrive.begin(), params.targetDrive.end()) + 
-            L"\\Windows\" /s \"" + 
-            std::wstring(params.bootDrive.begin(), params.bootDrive.end()) + 
-            L"\" /f UEFI";
+        // bcdboot W:\Windows /s S: /f UEFI (드라이브 문자는 공백이 없으므로 따옴표 불필요)
+        std::wstring bcdCmd = L"bcdboot.exe " + wCleanTarget + L"\\Windows /s " + wCleanBoot + L" /f UEFI";
 
         STARTUPINFOW bcdSi = {};
         bcdSi.cb = sizeof(STARTUPINFO);

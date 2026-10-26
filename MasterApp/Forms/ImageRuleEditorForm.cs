@@ -120,8 +120,17 @@ namespace MultiDeployOS.Master.Forms
             btnSaveScan.Font = new Font("맑은 고딕", 10f, FontStyle.Bold);
             btnSaveScan.Click += (s, e) =>
             {
-                _configManager.ServerConfig.MasterImageDir = _txtMasterDir.Text.Trim();
-                _configManager.ServerConfig.NetworkSharePath = _txtSharePath.Text.Trim();
+                string mDir = (_txtMasterDir.Text ?? "").Trim().Trim('"', '\'').Replace('/', '\\');
+                string sPath = (_txtSharePath.Text ?? "").Trim().Trim('"', '\'').Replace('/', '\\');
+
+                if (mDir.Length > 3) mDir = mDir.TrimEnd('\\');
+                if (sPath.Length > 2 && !sPath.EndsWith(":")) sPath = sPath.TrimEnd('\\');
+
+                _txtMasterDir.Text = mDir;
+                _txtSharePath.Text = sPath;
+
+                _configManager.ServerConfig.MasterImageDir = mDir;
+                _configManager.ServerConfig.NetworkSharePath = sPath;
                 _configManager.SaveServerConfig();
                 RefreshScannedFiles();
                 MessageBox.Show("폴더 설정이 저장되고 WIM 파일 스캔이 완료되었습니다.", "스캔 완료", MessageBoxButtons.OK, MessageBoxIcon.Information);
