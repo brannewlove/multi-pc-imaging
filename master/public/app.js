@@ -69,6 +69,29 @@ const elBtnOpenPolicies = document.getElementById('btnOpenPolicies');
 const elBtnClosePolicies = document.getElementById('btnClosePolicies');
 const elBtnClosePoliciesBottom = document.getElementById('btnClosePoliciesBottom');
 const elPolicyListContainer = document.getElementById('policyListContainer');
+const elBtnAddNewPolicy = document.getElementById('btnAddNewPolicy');
+
+// 파티션 권장양식 에디터 모달 DOM
+const elModalPolicyEditor = document.getElementById('modalPolicyEditor');
+const elBtnClosePolicyEditor = document.getElementById('btnClosePolicyEditor');
+const elBtnCancelPolicyEdit = document.getElementById('btnCancelPolicyEdit');
+const elBtnSavePolicyEdit = document.getElementById('btnSavePolicyEdit');
+const elModalPolicyEditorTitle = document.getElementById('modalPolicyEditorTitle');
+
+const elInputPolicyEditId = document.getElementById('inputPolicyEditId');
+const elInputPolicyEditName = document.getElementById('inputPolicyEditName');
+const elSelectPolicyEditScheme = document.getElementById('selectPolicyEditScheme');
+const elInputPolicyEditDesc = document.getElementById('inputPolicyEditDesc');
+const elInputPolicyEditModel = document.getElementById('inputPolicyEditModel');
+const elSelectPolicyEditDisk = document.getElementById('selectPolicyEditDisk');
+const elInputPolicyEditMinCap = document.getElementById('inputPolicyEditMinCap');
+const elInputPolicyEditMaxCap = document.getElementById('inputPolicyEditMaxCap');
+const elCheckPolicyEditAutoApprove = document.getElementById('checkPolicyEditAutoApprove');
+const elBtnApplyTemplateSingleC = document.getElementById('btnApplyTemplateSingleC');
+const elBtnApplyTemplateOver512 = document.getElementById('btnApplyTemplateOver512');
+const elBtnApplyTemplateHalf512 = document.getElementById('btnApplyTemplateHalf512');
+const elBtnApplyTemplateMultiDisk = document.getElementById('btnApplyTemplateMultiDisk');
+const elTextareaPolicyEditCommands = document.getElementById('textareaPolicyEditCommands');
 
 // 마스터 이미지 및 선택 규칙 모달 DOM
 const elModalImageRules = document.getElementById('modalImageRules');
@@ -82,6 +105,26 @@ const elSelectAccessMethod = document.getElementById('selectAccessMethod');
 const elBtnSaveAndScanFolder = document.getElementById('btnSaveAndScanFolder');
 const elBadgeScannedCount = document.getElementById('badgeScannedCount');
 const elScannedFilesContainer = document.getElementById('scannedFilesContainer');
+
+// 이미지 규칙 에디터 모달 DOM
+const elModalImageRuleEditor = document.getElementById('modalImageRuleEditor');
+const elBtnCloseImageRuleEditor = document.getElementById('btnCloseImageRuleEditor');
+const elBtnCancelImageRuleEdit = document.getElementById('btnCancelImageRuleEdit');
+const elBtnSaveImageRuleEdit = document.getElementById('btnSaveImageRuleEdit');
+const elModalImageRuleEditorTitle = document.getElementById('modalImageRuleEditorTitle');
+
+const elInputImageRuleEditId = document.getElementById('inputImageRuleEditId');
+const elInputImageRuleEditName = document.getElementById('inputImageRuleEditName');
+const elSelectImageRuleEditBus = document.getElementById('selectImageRuleEditBus');
+const elInputImageRuleEditMfg = document.getElementById('inputImageRuleEditMfg');
+const elInputImageRuleEditModel = document.getElementById('inputImageRuleEditModel');
+const elInputImageRuleEditMinDisk = document.getElementById('inputImageRuleEditMinDisk');
+const elInputImageRuleEditMaxDisk = document.getElementById('inputImageRuleEditMaxDisk');
+const elCheckImageRuleEditEnabled = document.getElementById('checkImageRuleEditEnabled');
+const elInputImageRuleEditWim = document.getElementById('inputImageRuleEditWim');
+const elSelectImageRuleEditScannedHelper = document.getElementById('selectImageRuleEditScannedHelper');
+const elInputImageRuleEditIndex = document.getElementById('inputImageRuleEditIndex');
+const elInputImageRuleEditDesc = document.getElementById('inputImageRuleEditDesc');
 
 const elImageRulesListContainer = document.getElementById('imageRulesListContainer');
 const elBtnAddNewImageRule = document.getElementById('btnAddNewImageRule');
@@ -929,6 +972,11 @@ function renderHistoryTable() {
 // 6. 정책 모달 렌더링
 function renderPoliciesList() {
     elPolicyListContainer.innerHTML = '';
+    if (!partitionPolicies || partitionPolicies.length === 0) {
+        elPolicyListContainer.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">등록된 파티션 권장양식이 없습니다. 우측 상단의 [+ 새 권장양식 추가]를 클릭하여 추가하세요.</div>';
+        return;
+    }
+
     partitionPolicies.forEach(p => {
         const item = document.createElement('div');
         item.className = 'policy-card-item';
@@ -940,19 +988,249 @@ function renderPoliciesList() {
                     <span class="policy-name">${escapeHtml(p.name)}</span>
                     <p style="font-size:0.78rem;color:var(--text-muted);margin-top:2px;">${escapeHtml(p.description || '')}</p>
                 </div>
-                <span class="policy-badge" style="${p.autoApprove ? 'background:rgba(16,185,129,0.15);color:#34d399;' : 'background:rgba(245,158,11,0.15);color:#fbbf24;'}">
-                    ${p.autoApprove ? '⚡ 자동 승인 ON' : '수동 승인 권장'}
-                </span>
+                <div class="policy-actions">
+                    <span class="policy-badge" style="${p.autoApprove ? 'background:rgba(16,185,129,0.15);color:#34d399;' : 'background:rgba(245,158,11,0.15);color:#fbbf24;'}">
+                        ${p.autoApprove ? '⚡ 자동 승인 ON' : '수동 승인'}
+                    </span>
+                    <button class="btn btn-secondary btn-xs" onclick="openPolicyEditor('${p.id}')">수정</button>
+                    <button class="btn btn-danger-sm btn-xs" onclick="deletePartitionPolicy('${p.id}')">삭제</button>
+                </div>
             </div>
             <div class="policy-cond-list">
                 <span class="cond-chip">모델 매칭: ${escapeHtml(cond.modelPattern || '*')}</span>
-                <span class="cond-chip">HDD 용량 범위: ${cond.minCapacityGb || 0}GB ~ ${cond.maxCapacityGb || 9999}GB</span>
+                <span class="cond-chip">HDD 용량: ${cond.minCapacityGb || 0}GB ~ ${cond.maxCapacityGb || 9999}GB</span>
                 <span class="cond-chip">타깃 디스크: ${cond.targetDiskCriteria || 'INDEX_0'}</span>
-                <span class="cond-chip">파티션 형식: ${p.partitionScheme}</span>
+                <span class="cond-chip">형식: ${p.partitionScheme}</span>
             </div>
         `;
         elPolicyListContainer.appendChild(item);
     });
+}
+
+// 파티션 권장양식 에디터 열기
+function openPolicyEditor(policyId = null) {
+    if (policyId) {
+        const p = partitionPolicies.find(item => item.id === policyId);
+        if (!p) return;
+        elModalPolicyEditorTitle.textContent = '파티션 권장양식 수정';
+        elInputPolicyEditId.value = p.id;
+        elInputPolicyEditName.value = p.name || '';
+        elSelectPolicyEditScheme.value = p.partitionScheme || 'GPT';
+        elInputPolicyEditDesc.value = p.description || '';
+        elInputPolicyEditModel.value = p.conditions?.modelPattern || '*';
+        elSelectPolicyEditDisk.value = p.conditions?.targetDiskCriteria || 'INDEX_0';
+        elInputPolicyEditMinCap.value = p.conditions?.minCapacityGb ?? 0;
+        elInputPolicyEditMaxCap.value = p.conditions?.maxCapacityGb ?? 9999;
+        elCheckPolicyEditAutoApprove.checked = !!p.autoApprove;
+        elTextareaPolicyEditCommands.value = Array.isArray(p.diskpartCommands) 
+            ? p.diskpartCommands.join('\n') 
+            : (p.diskpartCommands || '');
+    } else {
+        elModalPolicyEditorTitle.textContent = '새 파티션 권장양식 등록';
+        elInputPolicyEditId.value = 'policy-' + Date.now();
+        elInputPolicyEditName.value = '신규 권장 양식';
+        elSelectPolicyEditScheme.value = 'GPT';
+        elInputPolicyEditDesc.value = '권장 파티션 레이아웃 설정';
+        elInputPolicyEditModel.value = '*';
+        elSelectPolicyEditDisk.value = 'INDEX_0';
+        elInputPolicyEditMinCap.value = 100;
+        elInputPolicyEditMaxCap.value = 4000;
+        elCheckPolicyEditAutoApprove.checked = true;
+        applyTemplateSingleC();
+    }
+    elModalPolicyEditor.classList.remove('hidden');
+}
+
+function closePolicyEditor() {
+    elModalPolicyEditor.classList.add('hidden');
+}
+
+function applyTemplateSingleC() {
+    const isGpt = elSelectPolicyEditScheme.value === 'GPT';
+    if (isGpt) {
+        elTextareaPolicyEditCommands.value = [
+            'select disk 0',
+            'clean',
+            'convert gpt',
+            'create partition efi size=100',
+            'format quick fs=fat32 label="System"',
+            'assign letter="S"',
+            'create partition msr size=16',
+            'create partition primary',
+            'format quick fs=ntfs label="Windows"',
+            'assign letter="W"'
+        ].join('\n');
+    } else {
+        elTextareaPolicyEditCommands.value = [
+            'select disk 0',
+            'clean',
+            'convert mbr',
+            'create partition primary size=100',
+            'active',
+            'format quick fs=ntfs label="System"',
+            'assign letter="S"',
+            'create partition primary',
+            'format quick fs=ntfs label="Windows"',
+            'assign letter="W"'
+        ].join('\n');
+    }
+}
+
+function applyTemplateOver512() {
+    elSelectPolicyEditScheme.value = 'GPT';
+    elTextareaPolicyEditCommands.value = [
+        'select disk 0',
+        'clean',
+        'convert gpt',
+        'create partition efi size=100',
+        'format quick fs=fat32 label="System"',
+        'assign letter="S"',
+        'create partition msr size=16',
+        'create partition primary size=307200',
+        'format quick fs=ntfs label="Windows11"',
+        'assign letter="W"',
+        'create partition primary',
+        'format quick fs=ntfs label="Data"',
+        'assign letter="D"'
+    ].join('\n');
+}
+
+function applyTemplateHalf512() {
+    elSelectPolicyEditScheme.value = 'GPT';
+    elTextareaPolicyEditCommands.value = [
+        'select disk 0',
+        'clean',
+        'convert gpt',
+        'create partition efi size=100',
+        'format quick fs=fat32 label="System"',
+        'assign letter="S"',
+        'create partition msr size=16',
+        'create partition primary size=245760',
+        'format quick fs=ntfs label="Windows11"',
+        'assign letter="W"',
+        'create partition primary',
+        'format quick fs=ntfs label="Data"',
+        'assign letter="D"'
+    ].join('\n');
+}
+
+function applyTemplateMultiDisk() {
+    elSelectPolicyEditScheme.value = 'GPT';
+    elTextareaPolicyEditCommands.value = [
+        'select disk 0',
+        'clean',
+        'convert gpt',
+        'create partition efi size=100',
+        'format quick fs=fat32 label="System"',
+        'assign letter="S"',
+        'create partition msr size=16',
+        'create partition primary',
+        'format quick fs=ntfs label="Windows11"',
+        'assign letter="W"',
+        'select disk 1',
+        'clean',
+        'convert gpt',
+        'create partition primary',
+        'format quick fs=ntfs label="Data"',
+        'assign letter="D"'
+    ].join('\n');
+}
+
+async function savePolicyFromEditor() {
+    const id = elInputPolicyEditId.value.trim();
+    const name = elInputPolicyEditName.value.trim();
+    const scheme = elSelectPolicyEditScheme.value;
+    const desc = elInputPolicyEditDesc.value.trim();
+    const model = elInputPolicyEditModel.value.trim() || '*';
+    const disk = elSelectPolicyEditDisk.value;
+    const minCap = parseInt(elInputPolicyEditMinCap.value, 10) || 0;
+    const maxCap = parseInt(elInputPolicyEditMaxCap.value, 10) || 9999;
+    const autoApprove = elCheckPolicyEditAutoApprove.checked;
+    const commandsText = elTextareaPolicyEditCommands.value.trim();
+
+    if (!name) {
+        alert('양식 이름을 입력해 주세요.');
+        elInputPolicyEditName.focus();
+        return;
+    }
+    if (!commandsText) {
+        alert('DiskPart 실행 명령 스크립트를 입력하거나 [C드라이브 단일] 템플릿을 적용하세요.');
+        return;
+    }
+
+    const commands = commandsText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+    const policyObj = {
+        id: id || ('policy-' + Date.now()),
+        name: name,
+        partitionScheme: scheme,
+        description: desc,
+        autoApprove: autoApprove,
+        conditions: {
+            modelPattern: model,
+            minCapacityGb: minCap,
+            maxCapacityGb: maxCap,
+            targetDiskCriteria: disk
+        },
+        diskpartCommands: commands
+    };
+
+    try {
+        elBtnSavePolicyEdit.disabled = true;
+        elBtnSavePolicyEdit.textContent = '저장 중...';
+
+        const res = await fetch('/api/policy/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(policyObj)
+        });
+        const data = await res.json();
+        if (data.success) {
+            const existingIdx = partitionPolicies.findIndex(p => p.id === policyObj.id);
+            if (existingIdx >= 0) {
+                partitionPolicies[existingIdx] = policyObj;
+            } else {
+                partitionPolicies.push(policyObj);
+            }
+            renderPoliciesList();
+            closePolicyEditor();
+            alert(`파티션 권장양식 '${name}'이(가) 성공적으로 저장되었습니다.`);
+        } else {
+            alert('저장 실패: ' + (data.error || '알 수 없는 오류'));
+        }
+    } catch (e) {
+        alert('서버 저장 요청 오류: ' + e.message);
+    } finally {
+        elBtnSavePolicyEdit.disabled = false;
+        elBtnSavePolicyEdit.textContent = '저장하기';
+    }
+}
+
+async function deletePartitionPolicy(policyId) {
+    const target = partitionPolicies.find(p => p.id === policyId);
+    const targetName = target ? target.name : policyId;
+
+    if (!confirm(`정말로 파티션 권장양식 '${targetName}'을(를) 삭제하시겠습니까?`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/policy/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: policyId })
+        });
+        const data = await res.json();
+        if (data.success) {
+            partitionPolicies = partitionPolicies.filter(p => p.id !== policyId);
+            renderPoliciesList();
+            alert(`'${targetName}' 권장양식이 삭제되었습니다.`);
+        } else {
+            alert('삭제 실패: ' + (data.error || '알 수 없는 오류'));
+        }
+    } catch (e) {
+        alert('삭제 요청 오류: ' + e.message);
+    }
 }
 
 // --------------------------------------------------------------------------
@@ -1025,7 +1303,7 @@ function renderImageRulesList() {
                     <button class="btn btn-secondary btn-xs" onclick="toggleRuleEnabled('${rule.id}')">
                         ${rule.enabled !== false ? '✅ 활성' : '⚪ 비활성'}
                     </button>
-                    <button class="btn btn-secondary btn-xs" onclick="editImageRule('${rule.id}')">수정</button>
+                    <button class="btn btn-secondary btn-xs" onclick="openImageRuleEditor('${rule.id}')">수정</button>
                     ${!isFallback ? `
                         <button class="btn btn-danger btn-xs" onclick="deleteImageRule('${rule.id}')">삭제</button>
                     ` : ''}
@@ -1124,6 +1402,7 @@ function moveRulePriority(ruleId, direction) {
     nonFallback.forEach((r, i) => r.priority = i + 1);
 
     renderImageRulesList();
+    saveAllImageRulesToServer(true);
 }
 
 function toggleRuleEnabled(ruleId) {
@@ -1131,90 +1410,175 @@ function toggleRuleEnabled(ruleId) {
     if (r) {
         r.enabled = !(r.enabled !== false);
         renderImageRulesList();
+        saveAllImageRulesToServer(true);
     }
 }
 
-function deleteImageRule(ruleId) {
-    if (!confirm('이 선택 규칙을 삭제하시겠습니까?')) return;
-    imageCatalog = imageCatalog.filter(r => r.id !== ruleId);
-    renderImageRulesList();
+// 스캔된 WIM 파일 헬퍼 셀렉트박스 채우기
+function populateScannedWimHelper(selectedWimName = '') {
+    const files = scannedImages.files || [];
+    elSelectImageRuleEditScannedHelper.innerHTML = '<option value="">-- 감지된 WIM 파일에서 선택 --</option>';
+    files.forEach(f => {
+        const opt = document.createElement('option');
+        opt.value = f.fileName;
+        opt.textContent = `${f.fileName} (${f.sizeGb} GB)`;
+        if (f.fileName === selectedWimName) {
+            opt.selected = true;
+        }
+        elSelectImageRuleEditScannedHelper.appendChild(opt);
+    });
 }
 
-function editImageRule(ruleId) {
-    const r = imageCatalog.find(rule => rule.id === ruleId);
-    if (!r) return;
+// 이미지 선택 규칙 에디터 모달 열기
+function openImageRuleEditor(ruleId = null) {
+    const files = scannedImages.files || [];
+    const defaultWim = files.length > 0 ? files[0].fileName : 'Win11_Custom.wim';
 
-    const newName = prompt('규칙 이름을 입력하세요:', r.name);
-    if (newName === null) return;
-    r.name = newName;
-
-    const newMfg = prompt('매칭할 제조사 패턴을 입력하세요 (와일드카드 * 지원, 예: SAMSUNG*):', r.conditions?.manufacturer || '*');
-    if (newMfg !== null) {
-        if (!r.conditions) r.conditions = {};
-        r.conditions.manufacturer = newMfg;
+    if (ruleId) {
+        const r = imageCatalog.find(rule => rule.id === ruleId);
+        if (!r) return;
+        elModalImageRuleEditorTitle.textContent = r.isFallback ? '기본 대체(Fallback) 규칙 수정' : '이미지 선택 규칙 수정';
+        elInputImageRuleEditId.value = r.id;
+        elInputImageRuleEditName.value = r.name || '';
+        elSelectImageRuleEditBus.value = r.conditions?.targetDiskType || 'ANY';
+        elInputImageRuleEditMfg.value = r.conditions?.manufacturer || '*';
+        elInputImageRuleEditModel.value = r.conditions?.modelPattern || '*';
+        elInputImageRuleEditMinDisk.value = r.conditions?.minDiskGb ?? 100;
+        elInputImageRuleEditMaxDisk.value = r.conditions?.maxDiskGb ?? 4000;
+        elCheckImageRuleEditEnabled.checked = r.enabled !== false;
+        
+        const wimName = r.targetImage?.imageFileName || r.imageFileName || defaultWim;
+        elInputImageRuleEditWim.value = wimName;
+        elInputImageRuleEditIndex.value = r.targetImage?.imageIndex || 1;
+        elInputImageRuleEditDesc.value = r.targetImage?.description || r.description || '';
+        populateScannedWimHelper(wimName);
+    } else {
+        elModalImageRuleEditorTitle.textContent = '새 이미지 선택 규칙 등록';
+        elInputImageRuleEditId.value = 'rule-' + Date.now();
+        elInputImageRuleEditName.value = '신규 기종 이미지 규칙';
+        elSelectImageRuleEditBus.value = 'ANY';
+        elInputImageRuleEditMfg.value = '*';
+        elInputImageRuleEditModel.value = '*';
+        elInputImageRuleEditMinDisk.value = 100;
+        elInputImageRuleEditMaxDisk.value = 4000;
+        elCheckImageRuleEditEnabled.checked = true;
+        elInputImageRuleEditWim.value = defaultWim;
+        elInputImageRuleEditIndex.value = 1;
+        elInputImageRuleEditDesc.value = '기종별 맞춤형 Windows 이미지 배포';
+        populateScannedWimHelper(defaultWim);
     }
 
-    const newModel = prompt('매칭할 모델명 패턴을 입력하세요 (예: NT950*|Galaxy*):', r.conditions?.modelPattern || '*');
-    if (newModel !== null) {
-        r.conditions.modelPattern = newModel;
-    }
-
-    const newWim = prompt('적용할 WIM 파일명을 입력하세요 (예: Win11_23H2_Pro.wim):', r.targetImage?.imageFileName || r.imageFileName || 'install.wim');
-    if (newWim !== null) {
-        if (!r.targetImage) r.targetImage = {};
-        r.targetImage.imageFileName = newWim;
-    }
-
-    renderImageRulesList();
+    elModalImageRuleEditor.classList.remove('hidden');
 }
 
-function addNewImageRule() {
-    const name = prompt('새 선택 규칙 이름을 입력하세요:', '신규 기종 이미지 규칙');
-    if (!name) return;
+function closeImageRuleEditor() {
+    elModalImageRuleEditor.classList.add('hidden');
+}
 
-    const mfg = prompt('제조사 패턴 (예: SAMSUNG*, LENOVO*, DELL*, *):', '*') || '*';
-    const model = prompt('모델명 패턴 (예: NT950*, ThinkPad*, Latitude*, *):', '*') || '*';
-    
-    // 스캔된 파일이 있으면 첫 번째 파일을 기본값으로 제안
-    const defaultWim = (scannedImages.files && scannedImages.files.length > 0) ? scannedImages.files[0].fileName : 'Win11_Custom.wim';
-    const wim = prompt('적용할 WIM 파일명을 입력하세요:', defaultWim) || defaultWim;
+async function saveImageRuleFromEditor() {
+    const id = elInputImageRuleEditId.value.trim();
+    const name = elInputImageRuleEditName.value.trim();
+    const bus = elSelectImageRuleEditBus.value;
+    const mfg = elInputImageRuleEditMfg.value.trim() || '*';
+    const model = elInputImageRuleEditModel.value.trim() || '*';
+    const minDisk = parseInt(elInputImageRuleEditMinDisk.value, 10) || 0;
+    const maxDisk = parseInt(elInputImageRuleEditMaxDisk.value, 10) || 9999;
+    const enabled = elCheckImageRuleEditEnabled.checked;
+    const wim = elInputImageRuleEditWim.value.trim();
+    const index = parseInt(elInputImageRuleEditIndex.value, 10) || 1;
+    const desc = elInputImageRuleEditDesc.value.trim();
 
-    const newRule = {
-        id: 'rule-' + Date.now(),
+    if (!name) {
+        alert('규칙 이름을 입력해 주세요.');
+        elInputImageRuleEditName.focus();
+        return;
+    }
+    if (!wim) {
+        alert('적용할 WIM 파일명을 입력하거나 스캔 목록에서 선택해 주세요.');
+        elInputImageRuleEditWim.focus();
+        return;
+    }
+
+    const existingIdx = imageCatalog.findIndex(r => r.id === id);
+    const isFallback = existingIdx >= 0 ? !!imageCatalog[existingIdx].isFallback : false;
+
+    const ruleObj = {
+        id: id || ('rule-' + Date.now()),
         name: name,
-        enabled: true,
-        priority: imageCatalog.filter(r => !r.isFallback).length + 1,
+        enabled: enabled,
+        priority: existingIdx >= 0 ? (imageCatalog[existingIdx].priority || (existingIdx + 1)) : (imageCatalog.filter(r => !r.isFallback).length + 1),
         conditions: {
             manufacturer: mfg,
             modelPattern: model,
-            minDiskGb: 100,
-            maxDiskGb: 4000,
-            targetDiskType: 'ANY'
+            minDiskGb: minDisk,
+            maxDiskGb: maxDisk,
+            targetDiskType: bus
         },
         targetImage: {
             imageFileName: wim,
-            imageIndex: 1,
+            imageIndex: index,
             osVersion: 'Windows 11 x64',
-            description: '관리자 신규 등록 이미지'
+            description: desc
         },
-        isFallback: false
+        isFallback: isFallback
     };
 
-    // fallback 바로 앞에 삽입
-    const fallbackIdx = imageCatalog.findIndex(r => r.isFallback);
-    if (fallbackIdx >= 0) {
-        imageCatalog.splice(fallbackIdx, 0, newRule);
+    if (existingIdx >= 0) {
+        imageCatalog[existingIdx] = ruleObj;
     } else {
-        imageCatalog.push(newRule);
+        // Fallback 규칙 바로 앞에 삽입
+        const fallbackIdx = imageCatalog.findIndex(r => r.isFallback);
+        if (fallbackIdx >= 0) {
+            imageCatalog.splice(fallbackIdx, 0, ruleObj);
+        } else {
+            imageCatalog.push(ruleObj);
+        }
     }
 
+    // 우선순위 재정렬
+    const nonFallback = imageCatalog.filter(r => !r.isFallback).sort((a,b) => (a.priority||999) - (b.priority||999));
+    nonFallback.forEach((r, i) => r.priority = i + 1);
+
     renderImageRulesList();
+    closeImageRuleEditor();
+
+    // 서버에 즉시 영구 저장
+    await saveAllImageRulesToServer(false);
 }
 
-async function saveAllImageRulesToServer() {
+async function deleteImageRule(ruleId) {
+    const target = imageCatalog.find(r => r.id === ruleId);
+    if (!target) return;
+
+    if (target.isFallback) {
+        alert('기본 대체(Fallback) 규칙은 모든 기종 매칭 실패 시 사용되는 안전망이므로 삭제할 수 없습니다. 대신 설정을 수정하거나 비활성화할 수 있습니다.');
+        return;
+    }
+
+    if (!confirm(`정말로 선택 규칙 '${target.name}'을(를) 삭제하시겠습니까?`)) {
+        return;
+    }
+
+    imageCatalog = imageCatalog.filter(r => r.id !== ruleId);
+    
+    // 우선순위 1부터 재부여
+    const nonFallback = imageCatalog.filter(r => !r.isFallback).sort((a,b) => (a.priority||999) - (b.priority||999));
+    nonFallback.forEach((r, i) => r.priority = i + 1);
+
+    renderImageRulesList();
+    await saveAllImageRulesToServer(false);
+}
+
+function addNewImageRule() {
+    openImageRuleEditor();
+}
+
+async function saveAllImageRulesToServer(silent = false) {
     try {
-        elBtnSaveAllImageRules.disabled = true;
-        elBtnSaveAllImageRules.textContent = '저장 중...';
+        if (!silent) {
+            elBtnSaveAllImageRules.disabled = true;
+            elBtnSaveAllImageRules.textContent = '저장 중...';
+        }
 
         const res = await fetch('/api/images/rules', {
             method: 'POST',
@@ -1224,16 +1588,20 @@ async function saveAllImageRulesToServer() {
         const data = await res.json();
         if (data.success) {
             imageCatalog = data.rules;
-            alert('이미지 선택 규칙이 성공적으로 저장되었습니다. 대기 중인 PC들에 새 규칙이 즉시 적용되었습니다.');
-            elModalImageRules.classList.add('hidden');
+            renderImageRulesList();
+            if (!silent) {
+                alert('이미지 선택 규칙이 성공적으로 저장되었습니다. 대기 중인 PC들에 새 규칙이 즉시 적용되었습니다.');
+            }
         } else {
             alert('저장 실패: ' + (data.error || '오류 발생'));
         }
     } catch (e) {
         alert('서버 저장 요청 오류: ' + e.message);
     } finally {
-        elBtnSaveAllImageRules.disabled = false;
-        elBtnSaveAllImageRules.textContent = '선택 규칙 전체 저장';
+        if (!silent) {
+            elBtnSaveAllImageRules.disabled = false;
+            elBtnSaveAllImageRules.textContent = '선택 규칙 전체 저장';
+        }
     }
 }
 
@@ -1423,6 +1791,32 @@ elBtnOpenPolicies.addEventListener('click', () => {
 elBtnClosePolicies.addEventListener('click', () => elModalPolicies.classList.add('hidden'));
 elBtnClosePoliciesBottom.addEventListener('click', () => elModalPolicies.classList.add('hidden'));
 
+// 파티션 권장양식 에디터 이벤트 바인딩
+if (elBtnAddNewPolicy) {
+    elBtnAddNewPolicy.addEventListener('click', () => openPolicyEditor());
+}
+if (elBtnClosePolicyEditor) {
+    elBtnClosePolicyEditor.addEventListener('click', closePolicyEditor);
+}
+if (elBtnCancelPolicyEdit) {
+    elBtnCancelPolicyEdit.addEventListener('click', closePolicyEditor);
+}
+if (elBtnSavePolicyEdit) {
+    elBtnSavePolicyEdit.addEventListener('click', savePolicyFromEditor);
+}
+if (elBtnApplyTemplateSingleC) {
+    elBtnApplyTemplateSingleC.addEventListener('click', applyTemplateSingleC);
+}
+if (elBtnApplyTemplateOver512) {
+    elBtnApplyTemplateOver512.addEventListener('click', applyTemplateOver512);
+}
+if (elBtnApplyTemplateHalf512) {
+    elBtnApplyTemplateHalf512.addEventListener('click', applyTemplateHalf512);
+}
+if (elBtnApplyTemplateMultiDisk) {
+    elBtnApplyTemplateMultiDisk.addEventListener('click', applyTemplateMultiDisk);
+}
+
 // 마스터 이미지 및 선택 규칙 모달
 elBtnOpenImageRules.addEventListener('click', () => {
     renderImageRulesModalUI();
@@ -1432,8 +1826,26 @@ elBtnCloseImageRules.addEventListener('click', () => elModalImageRules.classList
 elBtnCloseImageRulesBottom.addEventListener('click', () => elModalImageRules.classList.add('hidden'));
 elBtnSaveAndScanFolder.addEventListener('click', saveAndScanMasterFolder);
 elBtnAddNewImageRule.addEventListener('click', addNewImageRule);
-elBtnSaveAllImageRules.addEventListener('click', saveAllImageRulesToServer);
+elBtnSaveAllImageRules.addEventListener('click', () => saveAllImageRulesToServer(false));
 elBtnRunMatchTest.addEventListener('click', runMatchSimulationTest);
+
+// 이미지 선택 규칙 에디터 이벤트 바인딩
+if (elBtnCloseImageRuleEditor) {
+    elBtnCloseImageRuleEditor.addEventListener('click', closeImageRuleEditor);
+}
+if (elBtnCancelImageRuleEdit) {
+    elBtnCancelImageRuleEdit.addEventListener('click', closeImageRuleEditor);
+}
+if (elBtnSaveImageRuleEdit) {
+    elBtnSaveImageRuleEdit.addEventListener('click', saveImageRuleFromEditor);
+}
+if (elSelectImageRuleEditScannedHelper) {
+    elSelectImageRuleEditScannedHelper.addEventListener('change', (e) => {
+        if (e.target.value) {
+            elInputImageRuleEditWim.value = e.target.value;
+        }
+    });
+}
 
 // 로그 모달
 elBtnCloseLog.addEventListener('click', () => elModalLog.classList.add('hidden'));

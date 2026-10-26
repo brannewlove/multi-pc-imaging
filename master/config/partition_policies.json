@@ -1,5 +1,21 @@
 [
   {
+    "id": "policy-smart-auto-gpt",
+    "name": "지능형 자동 감지 분할 (GPT 표준 권장양식)",
+    "description": "디스크 1개 시 용량(512GB 초과: 300GB / 이하: 50% 분할) 및 디스크 2개 이상 시 최소용량 OS+Data1/Data2 자동 GPT 구성",
+    "partitionScheme": "GPT",
+    "autoApprove": true,
+    "isSmartDynamic": true,
+    "conditions": {
+      "modelPattern": "*",
+      "diskCountMin": 1,
+      "diskCountMax": 99,
+      "targetDiskCriteria": "SMART_AUTO",
+      "minCapacityGb": 0,
+      "maxCapacityGb": 99999
+    }
+  },
+  {
     "id": "policy-nvme-1tb-single",
     "name": "1TB NVMe 단일 드라이브 (C드라이브 단독 구성)",
     "description": "1TB급 NVMe SSD 1개 탑재 모델용 기본 GPT 파티션",
@@ -9,8 +25,8 @@
       "diskCountMax": 99,
       "targetDiskCriteria": "NVME_FIRST",
       "targetDiskIndex": 0,
-      "minCapacityGb": 900.0,
-      "maxCapacityGb": 1050.0
+      "minCapacityGb": 900,
+      "maxCapacityGb": 1050
     },
     "autoApprove": true,
     "partitionScheme": "GPT",
@@ -50,8 +66,8 @@
       "diskCountMax": 99,
       "targetDiskCriteria": "NVME_FIRST",
       "targetDiskIndex": 0,
-      "minCapacityGb": 450.0,
-      "maxCapacityGb": 530.0
+      "minCapacityGb": 450,
+      "maxCapacityGb": 530
     },
     "autoApprove": false,
     "partitionScheme": "GPT",
@@ -98,8 +114,8 @@
       "diskCountMax": 99,
       "targetDiskCriteria": "INDEX_0",
       "targetDiskIndex": 0,
-      "minCapacityGb": 220.0,
-      "maxCapacityGb": 265.0
+      "minCapacityGb": 220,
+      "maxCapacityGb": 265
     },
     "autoApprove": true,
     "partitionScheme": "GPT",

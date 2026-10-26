@@ -1404,6 +1404,47 @@ body {
     border: 1px solid rgba(14, 165, 233, 0.2);
 }
 
+.policy-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.template-quick-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(14, 165, 233, 0.08);
+    border: 1px dashed rgba(14, 165, 233, 0.3);
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
+    flex-wrap: wrap;
+}
+
+.template-label {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #38bdf8;
+}
+
+.btn-danger-sm {
+    background: rgba(244, 63, 94, 0.15);
+    color: #fb7185;
+    border: 1px solid rgba(244, 63, 94, 0.3);
+    padding: 5px 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-danger-sm:hover {
+    background: var(--accent-rose);
+    color: #fff;
+    box-shadow: 0 0 10px var(--rose-glow);
+}
+
 .log-terminal {
     background: #05070a;
     border: 1px solid rgba(255, 255, 255, 0.08);

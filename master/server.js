@@ -257,45 +257,161 @@ function reMatchConnectedClients() {
     }
 }
 
-function generateDiskpartCommands(policy, targetDiskIndex = 0) {
-    const cmds = [
-        `select disk ${targetDiskIndex}`,
-        'clean'
-    ];
+// 스마트 지능형 동적 파티션 스크립트 생성 엔진 (사용자 지정 조건부 분할)
+function generateDynamicSmartPartitionCommands(clientDisks = []) {
+    const cmds = [];
 
-    if (policy.partitionScheme === 'GPT') {
-        cmds.push('convert gpt');
-    } else {
-        cmds.push('convert mbr');
+    // 디스크 목록이 없거나 비어있는 경우 Disk 0 단일 디스크로 대체
+    if (!clientDisks || clientDisks.length === 0) {
+        return [
+            'select disk 0',
+            'clean',
+            'convert gpt',
+            'create partition efi size=100',
+            'format quick fs=fat32 label="System"',
+            'assign letter="S"',
+            'create partition msr size=16',
+            'create partition primary',
+            'format quick fs=ntfs label="Windows11"',
+            'assign letter="W"'
+        ];
     }
 
-    for (const item of policy.layout) {
-        if (item.type === 'EFI') {
-            cmds.push(`create partition efi size=${item.sizeMb || 300}`);
-            cmds.push(`format quick fs=${item.fs.toLowerCase()} label="${item.label || 'System'}"`);
-            if (item.letter) cmds.push(`assign letter=${item.letter}`);
-        } else if (item.type === 'MSR') {
-            cmds.push(`create partition msr size=${item.sizeMb || 16}`);
-        } else if (item.type === 'OS') {
-            if (item.sizeMb === 'REMAINDER') {
-                cmds.push('create partition primary');
-            } else {
-                cmds.push(`create partition primary size=${item.sizeMb}`);
-            }
-            cmds.push(`format quick fs=${item.fs.toLowerCase()} label="${item.label || 'Windows'}"`);
-            if (item.letter) cmds.push(`assign letter=${item.letter}`);
-        } else if (item.type === 'DATA') {
-            if (item.sizeMb === 'REMAINDER') {
-                cmds.push('create partition primary');
-            } else {
-                cmds.push(`create partition primary size=${item.sizeMb}`);
-            }
-            cmds.push(`format quick fs=${item.fs.toLowerCase()} label="${item.label || 'Data'}"`);
-            if (item.letter) cmds.push(`assign letter=${item.letter}`);
+    if (clientDisks.length === 1) {
+        // [조건 1] 디스크 1개 인식
+        const disk = clientDisks[0];
+        const diskIndex = disk.diskIndex ?? 0;
+        const sizeGb = disk.sizeGb || (disk.sizeBytes ? (disk.sizeBytes / (1024 * 1024 * 1024)) : 0);
+        const sizeMb = disk.sizeBytes ? Math.floor(disk.sizeBytes / (1024 * 1024)) : Math.floor(sizeGb * 1024);
+
+        cmds.push(`select disk ${diskIndex}`);
+        cmds.push('clean');
+        cmds.push('convert gpt');
+        cmds.push('create partition efi size=100');
+        cmds.push('format quick fs=fat32 label="System"');
+        cmds.push('assign letter="S"');
+        cmds.push('create partition msr size=16');
+
+        if (sizeGb > 512) {
+            // (1-A) 크기 512GB 초과: 300GB "Windows11" 라벨 후 설치, 나머지 "Data" 라벨
+            cmds.push('create partition primary size=307200'); // 300GB = 307,200 MB
+            cmds.push('format quick fs=ntfs label="Windows11"');
+            cmds.push('assign letter="W"');
+            cmds.push('create partition primary');
+            cmds.push('format quick fs=ntfs label="Data"');
+            cmds.push('assign letter="D"');
+        } else {
+            // (1-B) 크기 512GB 이하: 50%로 나눈 뒤 "Windows11" 라벨 후 설치, 나머지 "Data" 라벨
+            const usableMb = Math.max(1024, sizeMb - 120); // EFI(100MB)+MSR(16MB) 제외 잔여 공간
+            const halfMb = Math.floor(usableMb / 2);
+            cmds.push(`create partition primary size=${halfMb}`);
+            cmds.push('format quick fs=ntfs label="Windows11"');
+            cmds.push('assign letter="W"');
+            cmds.push('create partition primary');
+            cmds.push('format quick fs=ntfs label="Data"');
+            cmds.push('assign letter="D"');
         }
+    } else {
+        // [조건 2] 디스크 2개 이상 인식
+        // 작은 용량 디스크 우선 정렬, 용량이 동일한 경우 1번 디스크(diskIndex 낮은 순) 우선
+        const sorted = [...clientDisks].sort((a, b) => {
+            const sizeA = a.sizeBytes || ((a.sizeGb || 0) * 1024 * 1024 * 1024);
+            const sizeB = b.sizeBytes || ((b.sizeGb || 0) * 1024 * 1024 * 1024);
+            // 2GB 이상 차이나면 작은 용량 디스크 선정
+            if (Math.abs(sizeA - sizeB) > 2 * 1024 * 1024 * 1024) {
+                return sizeA - sizeB;
+            }
+            // 동일 크기 디스크인 경우 1번 디스크(낮은 diskIndex) 선정
+            return (a.diskIndex ?? 0) - (b.diskIndex ?? 0);
+        });
+
+        const osDisk = sorted[0];
+        const dataDisks = sorted.slice(1);
+
+        // 1. OS 디스크: 전체 GPT 포맷, EFI, MSR 생성 후 전체를 "Windows11" 라벨로 포맷
+        cmds.push(`select disk ${osDisk.diskIndex ?? 0}`);
+        cmds.push('clean');
+        cmds.push('convert gpt');
+        cmds.push('create partition efi size=100');
+        cmds.push('format quick fs=fat32 label="System"');
+        cmds.push('assign letter="S"');
+        cmds.push('create partition msr size=16');
+        cmds.push('create partition primary');
+        cmds.push('format quick fs=ntfs label="Windows11"');
+        cmds.push('assign letter="W"');
+
+        // 2. 나머지 디스크: 전부 GPT 포맷, 1개면 "Data", 2개 이상이면 "Data1", "Data2" 형식
+        dataDisks.forEach((dDisk, idx) => {
+            const label = dataDisks.length === 1 ? 'Data' : `Data${idx + 1}`;
+            cmds.push(`select disk ${dDisk.diskIndex}`);
+            cmds.push('clean');
+            cmds.push('convert gpt');
+            cmds.push('create partition primary');
+            cmds.push(`format quick fs=ntfs label="${label}"`);
+            if (idx === 0) {
+                cmds.push('assign letter="D"');
+            } else {
+                cmds.push('assign');
+            }
+        });
     }
 
     return cmds;
+}
+
+function generateDiskpartCommands(policy, clientDisks = [], targetDiskIndex = 0) {
+    // 1. 정책이 스마트 동적 정책이거나, 지능형 모드인 경우
+    if (policy.isSmartDynamic || policy.id === 'policy-smart-auto-gpt' || !policy.layout && (!policy.diskpartCommands || policy.diskpartCommands.length === 0)) {
+        return generateDynamicSmartPartitionCommands(clientDisks);
+    }
+
+    // 2. 관리자가 직접 지정한 Diskpart 명령이 있는 경우
+    if (policy.diskpartCommands && Array.isArray(policy.diskpartCommands) && policy.diskpartCommands.length > 0) {
+        return policy.diskpartCommands;
+    }
+
+    // 3. 기존 레이아웃 배열이 있는 경우
+    if (policy.layout && Array.isArray(policy.layout)) {
+        const cmds = [
+            `select disk ${targetDiskIndex}`,
+            'clean'
+        ];
+
+        if (policy.partitionScheme === 'GPT') {
+            cmds.push('convert gpt');
+        } else {
+            cmds.push('convert mbr');
+        }
+
+        for (const item of policy.layout) {
+            if (item.type === 'EFI') {
+                cmds.push(`create partition efi size=${item.sizeMb || 300}`);
+                cmds.push(`format quick fs=${item.fs.toLowerCase()} label="${item.label || 'System'}"`);
+                if (item.letter) cmds.push(`assign letter=${item.letter}`);
+            } else if (item.type === 'MSR') {
+                cmds.push(`create partition msr size=${item.sizeMb || 16}`);
+            } else if (item.type === 'OS') {
+                if (item.sizeMb === 'REMAINDER') {
+                    cmds.push('create partition primary');
+                } else {
+                    cmds.push(`create partition primary size=${item.sizeMb}`);
+                }
+                cmds.push(`format quick fs=${item.fs.toLowerCase()} label="${item.label || 'Windows'}"`);
+                if (item.letter) cmds.push(`assign letter=${item.letter}`);
+            } else if (item.type === 'DATA') {
+                if (item.sizeMb === 'REMAINDER') {
+                    cmds.push('create partition primary');
+                } else {
+                    cmds.push(`create partition primary size=${item.sizeMb}`);
+                }
+                cmds.push(`format quick fs=${item.fs.toLowerCase()} label="${item.label || 'Data'}"`);
+                if (item.letter) cmds.push(`assign letter=${item.letter}`);
+            }
+        }
+        return cmds;
+    }
+
+    return generateDynamicSmartPartitionCommands(clientDisks);
 }
 
 // 4. 브라우저 대시보드 브로드캐스트
@@ -337,7 +453,7 @@ function approveClientDeploy(sessionId, customImage = null) {
 
     const policy = client.matchedPolicy || partitionPolicies[0];
     const imageRule = customImage || client.matchedImage || imageCatalog[0];
-    const cmds = generateDiskpartCommands(policy, 0);
+    const cmds = generateDiskpartCommands(policy, client.disks, 0);
 
     const targetFileName = imageRule?.targetImage?.imageFileName || imageRule?.imageFileName || 'Win11_Universal.wim';
     const targetIndex = imageRule?.targetImage?.imageIndex || imageRule?.imageIndex || 1;
@@ -744,7 +860,31 @@ const httpServer = http.createServer((req, res) => {
         return;
     }
 
-    // (9) 파티션 정책 저장
+    // (9) 파티션 정책 저장 (단일 또는 전체)
+    if (url.pathname === '/api/policies' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', () => {
+            try {
+                const payload = JSON.parse(body);
+                if (Array.isArray(payload)) {
+                    partitionPolicies = payload;
+                } else if (payload.policies && Array.isArray(payload.policies)) {
+                    partitionPolicies = payload.policies;
+                }
+                fs.writeFileSync(PATH_POLICIES, JSON.stringify(partitionPolicies, null, 2), 'utf-8');
+                reMatchConnectedClients();
+                broadcastToDashboard('POLICIES_UPDATED', { partitionPolicies });
+                res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+                res.end(JSON.stringify({ success: true, policies: partitionPolicies }));
+            } catch (e) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+
     if (url.pathname === '/api/policy/save' && req.method === 'POST') {
         let body = '';
         req.on('data', chunk => body += chunk);
@@ -760,10 +900,37 @@ const httpServer = http.createServer((req, res) => {
                 fs.writeFileSync(PATH_POLICIES, JSON.stringify(partitionPolicies, null, 2), 'utf-8');
                 reMatchConnectedClients();
                 broadcastToDashboard('POLICIES_UPDATED', { partitionPolicies });
-                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
                 res.end(JSON.stringify({ success: true, policies: partitionPolicies }));
             } catch (e) {
                 res.writeHead(400);
+                res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+
+    // (9-1) 파티션 정책 삭제
+    if (url.pathname === '/api/policy/delete' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', () => {
+            try {
+                const payload = JSON.parse(body);
+                const targetId = payload.policyId || payload.id;
+                if (!targetId) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: '삭제할 정책 ID(id/policyId)가 전달되지 않았습니다.' }));
+                    return;
+                }
+                partitionPolicies = partitionPolicies.filter(p => p.id !== targetId);
+                fs.writeFileSync(PATH_POLICIES, JSON.stringify(partitionPolicies, null, 2), 'utf-8');
+                reMatchConnectedClients();
+                broadcastToDashboard('POLICIES_UPDATED', { partitionPolicies });
+                res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+                res.end(JSON.stringify({ success: true, policies: partitionPolicies }));
+            } catch (e) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: e.message }));
             }
         });

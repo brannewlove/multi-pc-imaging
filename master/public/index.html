@@ -366,6 +366,182 @@
             </div>
         </div>
 
+        <!-- 3. 파티션 권장양식 신규/수정 에디터 모달 -->
+        <div class="modal-overlay hidden" id="modalPolicyEditor" style="z-index: 1050;">
+            <div class="modal-card modal-lg">
+                <div class="modal-header">
+                    <div class="modal-title-box">
+                        <span class="modal-icon">🛠️</span>
+                        <h3 id="modalPolicyEditorTitle">새 파티션 권장양식 추가</h3>
+                    </div>
+                    <button class="btn-close" id="btnClosePolicyEditor">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="inputPolicyEditId">
+                    <div class="form-row-grid">
+                        <div class="form-group flex-2">
+                            <label for="inputPolicyEditName">양식 이름 <span style="color:var(--accent-rose);">*</span></label>
+                            <input type="text" id="inputPolicyEditName" placeholder="예: 512GB NVMe C/D 분할 정책">
+                        </div>
+                        <div class="form-group flex-1">
+                            <label for="selectPolicyEditScheme">파티션 형식</label>
+                            <select id="selectPolicyEditScheme">
+                                <option value="GPT">GPT (UEFI 전용 - 권장)</option>
+                                <option value="MBR">MBR (레거시 BIOS)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group mt-2">
+                        <label for="inputPolicyEditDesc">정책 설명</label>
+                        <input type="text" id="inputPolicyEditDesc" placeholder="예: C드라이브 200GB, D드라이브 잔여 데이터 공간 분할">
+                    </div>
+
+                    <div class="form-row-grid mt-2">
+                        <div class="form-group flex-2">
+                            <label for="inputPolicyEditModel">기종 모델명 패턴 (와일드카드 * 및 다중 | 지원)</label>
+                            <input type="text" id="inputPolicyEditModel" placeholder="예: NT950*|Galaxy* 또는 * (모든 모델)">
+                        </div>
+                        <div class="form-group flex-1">
+                            <label for="selectPolicyEditDisk">타깃 디스크</label>
+                            <select id="selectPolicyEditDisk">
+                                <option value="INDEX_0">디스크 0 (첫 번째 디스크)</option>
+                                <option value="CAPACITY_MAX">용량이 가장 큰 디스크</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row-grid mt-2">
+                        <div class="form-group flex-1">
+                            <label for="inputPolicyEditMinCap">최소 디스크 용량 (GB)</label>
+                            <input type="number" id="inputPolicyEditMinCap" placeholder="예: 400" value="0">
+                        </div>
+                        <div class="form-group flex-1">
+                            <label for="inputPolicyEditMaxCap">최대 디스크 용량 (GB)</label>
+                            <input type="number" id="inputPolicyEditMaxCap" placeholder="예: 600" value="9999">
+                        </div>
+                        <div class="form-group flex-1" style="display:flex;align-items:center;padding-top:20px;">
+                            <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;">
+                                <input type="checkbox" id="checkPolicyEditAutoApprove" checked style="width:18px;height:18px;accent-color:var(--accent-emerald);">
+                                <span style="font-size:0.85rem;font-weight:600;color:var(--text-main);">조건 일치 시 자동 승인</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 템플릿 빠른 적용 버튼 -->
+                    <div class="template-quick-box mt-3">
+                        <span class="template-label">💡 조건별 추천 템플릿 빠른 적용:</span>
+                        <button type="button" class="btn btn-secondary btn-sm" id="btnApplyTemplateSingleC">
+                            단일 C: 전체 할당 (기본)
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" id="btnApplyTemplateOver512">
+                            [512GB 초과] C:300GB / D:잔여
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" id="btnApplyTemplateHalf512">
+                            [512GB 이하] C:50% / D:50%
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" id="btnApplyTemplateMultiDisk">
+                            [다중 디스크] 최소용량 OS / 나머지 Data
+                        </button>
+                    </div>
+
+                    <div class="form-group mt-2">
+                        <label for="textareaPolicyEditCommands">
+                            Diskpart 실행 명령어 스크립트 (줄바꿈 구분)
+                        </label>
+                        <textarea id="textareaPolicyEditCommands" rows="6" style="font-family:var(--font-mono);font-size:0.82rem;width:100%;padding:10px;background:#06080d;border:1px solid var(--border-subtle);border-radius:var(--radius-md);color:#7dd3fc;resize:vertical;" placeholder="select disk 0&#10;clean&#10;convert gpt&#10;create partition efi size=300&#10;format quick fs=fat32 label=EFI&#10;assign letter=S&#10;create partition msr size=16&#10;create partition primary&#10;format quick fs=ntfs label=Windows&#10;assign letter=W"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="btnCancelPolicyEdit">취소</button>
+                    <button class="btn btn-primary" id="btnSavePolicyEdit">💾 권장양식 저장</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. 마스터 이미지 선택 규칙 신규/수정 에디터 모달 -->
+        <div class="modal-overlay hidden" id="modalImageRuleEditor" style="z-index: 1060;">
+            <div class="modal-card modal-lg">
+                <div class="modal-header">
+                    <div class="modal-title-box">
+                        <span class="modal-icon">📀</span>
+                        <h3 id="modalImageRuleEditorTitle">새 이미지 선택 규칙 추가</h3>
+                    </div>
+                    <button class="btn-close" id="btnCloseImageRuleEditor">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="inputImageRuleEditId">
+                    <div class="form-row-grid">
+                        <div class="form-group flex-2">
+                            <label for="inputImageRuleEditName">규칙 이름 <span style="color:var(--accent-rose);">*</span></label>
+                            <input type="text" id="inputImageRuleEditName" placeholder="예: 삼성 갤럭시북 시리즈 전용 WIM 규칙">
+                        </div>
+                        <div class="form-group flex-1">
+                            <label for="selectImageRuleEditBus">디스크 인터페이스</label>
+                            <select id="selectImageRuleEditBus">
+                                <option value="ANY">모든 방식 (ANY)</option>
+                                <option value="NVMe">NVMe 전용</option>
+                                <option value="SATA">SATA 전용</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row-grid mt-2">
+                        <div class="form-group flex-1">
+                            <label for="inputImageRuleEditMfg">제조사 패턴 (와일드카드 * 지원)</label>
+                            <input type="text" id="inputImageRuleEditMfg" placeholder="예: SAMSUNG* 또는 LENOVO* 또는 *">
+                        </div>
+                        <div class="form-group flex-1">
+                            <label for="inputImageRuleEditModel">모델명 패턴 (정규식/와일드카드)</label>
+                            <input type="text" id="inputImageRuleEditModel" placeholder="예: NT950*|Galaxy*|Book*">
+                        </div>
+                    </div>
+
+                    <div class="form-row-grid mt-2">
+                        <div class="form-group flex-1">
+                            <label for="inputImageRuleEditMinDisk">최소 SSD 용량 (GB)</label>
+                            <input type="number" id="inputImageRuleEditMinDisk" value="100">
+                        </div>
+                        <div class="form-group flex-1">
+                            <label for="inputImageRuleEditMaxDisk">최대 SSD 용량 (GB)</label>
+                            <input type="number" id="inputImageRuleEditMaxDisk" value="4000">
+                        </div>
+                        <div class="form-group flex-1" style="display:flex;align-items:center;padding-top:20px;">
+                            <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;">
+                                <input type="checkbox" id="checkImageRuleEditEnabled" checked style="width:18px;height:18px;accent-color:var(--accent-emerald);">
+                                <span style="font-size:0.85rem;font-weight:600;color:var(--text-main);">규칙 활성화</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-group mt-3">
+                        <label for="inputImageRuleEditWim">배포할 WIM 파일명 <span style="color:var(--accent-rose);">*</span></label>
+                        <div style="display:flex;gap:10px;">
+                            <input type="text" id="inputImageRuleEditWim" placeholder="예: Win11_23H2_Pro.wim" style="flex:2;">
+                            <select id="selectImageRuleEditScannedHelper" style="flex:1;background:#0d121d;color:var(--text-main);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:8px;">
+                                <option value="">-- 스캔된 WIM 선택 --</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row-grid mt-2">
+                        <div class="form-group flex-1">
+                            <label for="inputImageRuleEditIndex">WIM 이미지 인덱스</label>
+                            <input type="number" id="inputImageRuleEditIndex" value="1" min="1">
+                        </div>
+                        <div class="form-group flex-2">
+                            <label for="inputImageRuleEditDesc">이미지 설명</label>
+                            <input type="text" id="inputImageRuleEditDesc" placeholder="예: Windows 11 Pro 64-bit 순정">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="btnCancelImageRuleEdit">취소</button>
+                    <button class="btn btn-primary" id="btnSaveImageRuleEdit">💾 규칙 저장</button>
+                </div>
+            </div>
+        </div>
+
         <!-- 상세 로그 모달 -->
         <div class="modal-overlay hidden" id="modalLogViewer">
             <div class="modal-card">
