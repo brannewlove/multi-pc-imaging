@@ -144,251 +144,281 @@ int main(int argc, char* argv[]) {
     }
     std::cout << "\n";
 
-    // 2. 마스터 서버 탐색 및 연결
-    std::string masterIp = "127.0.0.1";
-    int masterPort = 39201;
+    bool deployedSuccessfully = false;
 
-    if (argc >= 2) {
-        masterIp = argv[1];
-        std::cout << "[*] 커맨드라인 지정 마스터 IP 사용 (Using Master IP): " << masterIp << "\n";
-    } else {
-        std::cout << "[*] 마스터 서버 자동 탐색 중... (Searching for Master UDP 39200)...\n";
-        NetClient::MasterConnectionInfo connInfo;
-        if (NetClient::DiscoverMasterServer(3, connInfo)) {
-            masterIp = connInfo.ip;
-            masterPort = connInfo.tcpPort;
-            std::cout << "[+] 마스터 서버 발견! (Master Found): " << masterIp << ":" << masterPort << "\n";
+    // 마스터 프로그램 종료 시에도 에이전트가 종료되지 않고 대기 모드로 재연결을 시도하는 외부 루프
+    while (!deployedSuccessfully) {
+        // 2. 마스터 서버 탐색 및 연결
+        std::string masterIp = "127.0.0.1";
+        int masterPort = 39201;
+
+        if (argc >= 2) {
+            masterIp = argv[1];
+            std::cout << "[*] 커맨드라인 지정 마스터 IP 사용: " << masterIp << "\n";
         } else {
-            std::cout << "[-] 자동 탐색 타임아웃. 기본/로컬 IP 시도 (Fallback to " << masterIp << ").\n";
-        }
-    }
-
-    NetClient::AgentSocketClient client;
-    int retryCount = 0;
-    while (!client.Connect(masterIp, masterPort)) {
-        retryCount++;
-        std::cout << "[-] 마스터 연결 대기 중... (Waiting for Master Server... retry " << retryCount << ")\n";
-        std::this_thread::sleep_for(std::chrono::seconds(2));
-        if (retryCount >= 10 && argc < 2) {
-            // 주기적으로 다시 브로드캐스트 탐색
+            std::cout << "[*] 마스터 서버 자동 탐색 중... (UDP 39200)\n";
             NetClient::MasterConnectionInfo connInfo;
-            if (NetClient::DiscoverMasterServer(2, connInfo)) {
+            if (NetClient::DiscoverMasterServer(3, connInfo)) {
                 masterIp = connInfo.ip;
                 masterPort = connInfo.tcpPort;
+                std::cout << "[+] 마스터 서버 발견! (" << masterIp << ":" << masterPort << ")\n";
+            } else {
+                std::cout << "[-] 자동 탐색 대기 중. 기본/로컬 IP 시도 (" << masterIp << ")\n";
             }
         }
-    }
 
-    std::cout << "[+] 마스터 서버 연결 성공! (Connected to Master: " << masterIp << ":" << masterPort << ")\n";
-
-    // 3. 인벤토리 등록 메시지 전송
-    SimpleJson::JsonValue regMsg = SimpleJson::JsonValue::CreateObject();
-    regMsg.Set("type", "CLIENT_REGISTER");
-    regMsg.Set("payload", inv.ToJson());
-
-    client.SendJsonMessage(regMsg.ToString());
-    std::cout << "[*] 하드웨어 정보 전송 완료. 배포 승인 대기 중... (Info Sent. Waiting for Approval...)\n\n";
-
-    // 4. 마스터로부터의 배포 승인 명령 대기 루프
-    std::string incomingJson;
-    while (client.ReadMessage(incomingJson)) {
-        if (incomingJson.empty()) continue;
-
-        std::cout << "[*] 마스터 명령 수신 (Command Received): " << incomingJson.substr(0, 80) << "...\n";
-
-        // "MASTER_APPROVE_DEPLOY" 감지 시 배포 시퀀스 시작
-        if (incomingJson.find("MASTER_APPROVE_DEPLOY") != std::string::npos) {
-            std::cout << "\n=========================================================\n";
-            std::cout << "[*] 마스터 승인 확인! 이미지 더빙 작업을 시작합니다. (Deploy Approved! Starting...)\n";
-            std::cout << "=========================================================\n";
-
-            // 마스터가 전달한 배포 메타데이터 동적 추출
-            std::string ruleName = ExtractJsonString(incomingJson, "ruleName");
-            std::string imageName = ExtractJsonString(incomingJson, "imageName");
-            std::string imageLocalPath = ExtractJsonString(incomingJson, "imageLocalPath");
-            std::string imageNetworkPath = ExtractJsonString(incomingJson, "imageNetworkPath");
-            std::string sourceUrl = ExtractJsonString(incomingJson, "sourceUrl");
-            int imageIndex = ExtractJsonInt(incomingJson, "imageIndex", 1);
-            std::string targetDrive = ExtractJsonString(incomingJson, "targetDriveLetter");
-            std::string bootDrive = ExtractJsonString(incomingJson, "bootDriveLetter");
-
-            if (targetDrive.empty()) targetDrive = "W:";
-            if (bootDrive.empty()) bootDrive = "S:";
-
-            std::cout << "  - 적용 매칭 규칙 : " << (ruleName.empty() ? "기본 자동 선택 규칙" : ruleName) << "\n";
-            std::cout << "  - 대상 WIM 파일  : " << (imageName.empty() ? "install.wim" : imageName) << " (Index: " << imageIndex << ")\n\n";
-
-            // (1) 파티션 단계
-            std::cout << "[단계 1/3] 타깃 디스크 파티셔닝 수행 중... (Step 1/3: Partitioning Disk...)\n";
-            std::vector<std::string> diskpartCmds = ExtractPartitionCommands(incomingJson);
-            if (diskpartCmds.empty()) {
-                diskpartCmds = {
-                    "select disk 0",
-                    "clean",
-                    "convert gpt",
-                    "create partition efi size=300",
-                    "format quick fs=fat32 label=System",
-                    "assign letter=S",
-                    "create partition msr size=16",
-                    "create partition primary",
-                    "format quick fs=ntfs label=Windows",
-                    "assign letter=W"
-                };
-            }
-
-            auto partRes = PartitionEngine::ExecutePartitionPlan(0, diskpartCmds);
-            if (!partRes.success) {
-                std::cerr << "[-] 파티셔닝 실패 (Partition Failed): " << partRes.errorMessage << "\n";
-                // 실패 보고
-                SimpleJson::JsonValue failMsg = SimpleJson::JsonValue::CreateObject();
-                failMsg.Set("type", "CLIENT_RESULT");
-                failMsg.Set("status", "FAILED");
-                failMsg.Set("errorMessage", partRes.errorMessage);
-                client.SendJsonMessage(failMsg.ToString());
-                continue;
-            }
-            std::cout << "[+] 파티셔닝 완료! (Partitioning Completed!)\n";
-
-            // 진행 보고 (10%)
-            SimpleJson::JsonValue p1 = SimpleJson::JsonValue::CreateObject();
-            p1.Set("type", "CLIENT_PROGRESS");
-            p1.Set("status", "IMAGING");
-            p1.Set("step", "파티션 구성 완료 (Partition Completed 1/3)");
-            p1.Set("percent", 10.0);
-            p1.Set("elapsedSeconds", 5);
-            p1.Set("remainingSeconds", 120);
-            client.SendJsonMessage(p1.ToString());
-
-            // (2) 이미지 적용 (더빙)
-            // 실제 WIM 파일 유효 경로 결정:
-            // 1순위: 로컬 스토리지 / USB 드라이브 자동 검색 (가장 빠르고 100% 안정적)
-            // 2순위: 마스터가 전달한 로컬 경로 (동일 PC 테스트용)
-            // 3순위: 네트워크 공유 경로 (UNC 경로 및 Z: 드라이브 자동 마운트)
-            // 4순위: 기본 C:\images
-            std::string effectiveImagePath = "";
-
-            // 1순위: USB / 로컬 드라이브 자동 스캔
-            std::string localWim = FindLocalWimPath(imageName.empty() ? "Win11_Universal.wim" : imageName);
-            if (!localWim.empty()) {
-                effectiveImagePath = localWim;
-                std::cout << "[+] 로컬 드라이브(USB 메모리 등)에서 WIM 파일을 발견했습니다: " << effectiveImagePath << "\n";
-            }
-
-            // 2순위: imageLocalPath 검증
-            if (effectiveImagePath.empty() && !imageLocalPath.empty()) {
-                DWORD attr = GetFileAttributesA(imageLocalPath.c_str());
-                if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
-                    effectiveImagePath = imageLocalPath;
+        NetClient::AgentSocketClient client;
+        int retryCount = 0;
+        while (!client.Connect(masterIp, masterPort)) {
+            retryCount++;
+            std::cout << "[-] 마스터 연결 대기 중... (retry " << retryCount << ")\r" << std::flush;
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            if (retryCount % 5 == 0 && argc < 2) {
+                NetClient::MasterConnectionInfo connInfo;
+                if (NetClient::DiscoverMasterServer(2, connInfo)) {
+                    masterIp = connInfo.ip;
+                    masterPort = connInfo.tcpPort;
+                    std::cout << "\n[+] 마스터 서버 발견! (" << masterIp << ":" << masterPort << ")\n";
                 }
             }
+        }
 
-            // 3순위: 네트워크 공유 경로 처리
-            if (effectiveImagePath.empty() && !imageNetworkPath.empty()) {
-                std::string netPath = imageNetworkPath;
-                // 앞뒤 공백 및 따옴표 제거
-                while (!netPath.empty() && (netPath.front() == ' ' || netPath.front() == '"' || netPath.front() == '\'')) netPath.erase(netPath.begin());
-                while (!netPath.empty() && (netPath.back() == ' ' || netPath.back() == '"' || netPath.back() == '\'')) netPath.pop_back();
+        std::cout << "\n[+] 마스터 서버 연결 성공! (" << masterIp << ":" << masterPort << ")\n";
 
-                // 127.0.0.1 또는 localhost는 WinPE 클라이언트 입장에서 자기 자신이므로 실제 마스터 IP로 치환
-                size_t l1 = netPath.find("127.0.0.1");
-                if (l1 != std::string::npos) netPath.replace(l1, 9, masterIp);
-                size_t l2 = netPath.find("localhost");
-                if (l2 != std::string::npos) netPath.replace(l2, 9, masterIp);
+        // 3. 인벤토리 등록 메시지 전송
+        SimpleJson::JsonValue regMsg = SimpleJson::JsonValue::CreateObject();
+        regMsg.Set("type", "CLIENT_REGISTER");
+        regMsg.Set("payload", inv.ToJson());
 
-                // UNC 경로인 경우 (예: \\192.168.0.50\images\Win11_Universal.wim)
-                if (netPath.rfind("\\\\", 0) == 0) {
-                    DWORD attr = GetFileAttributesA(netPath.c_str());
+        client.SendJsonMessage(regMsg.ToString());
+        std::cout << "[*] 하드웨어 정보 전송 완료. 배포 승인 대기 중... (Info Sent. Waiting for Approval...)\n\n";
+
+        // 4. 마스터로부터의 배포 승인 명령 대기 루프
+        std::string incomingJson;
+        while (client.ReadMessage(incomingJson)) {
+            if (incomingJson.empty()) continue;
+
+            std::cout << "[*] 마스터 명령 수신 (Command Received): " << incomingJson.substr(0, 80) << "...\n";
+
+            // "MASTER_APPROVE_DEPLOY" 감지 시 배포 시퀀스 시작
+            if (incomingJson.find("MASTER_APPROVE_DEPLOY") != std::string::npos) {
+                std::cout << "\n=========================================================\n";
+                std::cout << "[*] 마스터 승인 확인! 이미지 더빙 작업을 시작합니다. (Deploy Approved! Starting...)\n";
+                std::cout << "=========================================================\n";
+
+                // 마스터가 전달한 배포 메타데이터 동적 추출
+                std::string ruleName = ExtractJsonString(incomingJson, "ruleName");
+                std::string imageName = ExtractJsonString(incomingJson, "imageName");
+                std::string imageLocalPath = ExtractJsonString(incomingJson, "imageLocalPath");
+                std::string imageNetworkPath = ExtractJsonString(incomingJson, "imageNetworkPath");
+                std::string sourceUrl = ExtractJsonString(incomingJson, "sourceUrl");
+                int imageIndex = ExtractJsonInt(incomingJson, "imageIndex", 1);
+                std::string targetDrive = ExtractJsonString(incomingJson, "targetDriveLetter");
+                std::string bootDrive = ExtractJsonString(incomingJson, "bootDriveLetter");
+
+                if (targetDrive.empty()) targetDrive = "W:";
+                if (bootDrive.empty()) bootDrive = "S:";
+
+                std::cout << "  - 적용 매칭 규칙 : " << (ruleName.empty() ? "기본 자동 선택 규칙" : ruleName) << "\n";
+                std::cout << "  - 대상 WIM 파일  : " << (imageName.empty() ? "install.wim" : imageName) << " (Index: " << imageIndex << ")\n\n";
+
+                // (1) 파티션 단계
+                std::cout << "[단계 1/3] 타깃 디스크 파티셔닝 수행 중... (Step 1/3: Partitioning Disk...)\n";
+                std::vector<std::string> diskpartCmds = ExtractPartitionCommands(incomingJson);
+                if (diskpartCmds.empty()) {
+                    diskpartCmds = {
+                        "select disk 0",
+                        "clean",
+                        "convert gpt",
+                        "create partition efi size=300",
+                        "format quick fs=fat32 label=System",
+                        "assign letter=S",
+                        "create partition msr size=16",
+                        "create partition primary",
+                        "format quick fs=ntfs label=Windows",
+                        "assign letter=W"
+                    };
+                }
+
+                auto partRes = PartitionEngine::ExecutePartitionPlan(0, diskpartCmds);
+                if (!partRes.success) {
+                    std::cerr << "[-] 파티셔닝 실패 (Partition Failed): " << partRes.errorMessage << "\n";
+                    // 실패 보고
+                    SimpleJson::JsonValue failMsg = SimpleJson::JsonValue::CreateObject();
+                    failMsg.Set("type", "CLIENT_RESULT");
+                    failMsg.Set("status", "FAILED");
+                    failMsg.Set("errorMessage", partRes.errorMessage);
+                    client.SendJsonMessage(failMsg.ToString());
+                    continue;
+                }
+                std::cout << "[+] 파티셔닝 완료! (Partitioning Completed!)\n";
+
+                // 진행 보고 (10%)
+                SimpleJson::JsonValue p1 = SimpleJson::JsonValue::CreateObject();
+                p1.Set("type", "CLIENT_PROGRESS");
+                p1.Set("status", "IMAGING");
+                p1.Set("step", "파티션 구성 완료 (Partition Completed 1/3)");
+                p1.Set("percent", 10.0);
+                p1.Set("elapsedSeconds", 5);
+                p1.Set("remainingSeconds", 120);
+                client.SendJsonMessage(p1.ToString());
+
+                // (2) 이미지 적용 (더빙)
+                // 실제 WIM 파일 유효 경로 결정:
+                // 1순위: 로컬 스토리지 / USB 드라이브 자동 검색 (가장 빠르고 100% 안정적)
+                // 2순위: 마스터가 전달한 로컬 경로 (동일 PC 테스트용)
+                // 3순위: 네트워크 공유 경로 (UNC 경로 및 Z: 드라이브 자동 마운트)
+                // 4순위: 기본 C:\images
+                std::string effectiveImagePath = "";
+
+                // 1순위: USB / 로컬 드라이브 자동 스캔
+                std::string localWim = FindLocalWimPath(imageName.empty() ? "Win11_Universal.wim" : imageName);
+                if (!localWim.empty()) {
+                    effectiveImagePath = localWim;
+                    std::cout << "[+] 로컬 드라이브(USB 메모리 등)에서 WIM 파일을 발견했습니다: " << effectiveImagePath << "\n";
+                }
+
+                // 2순위: imageLocalPath 검증
+                if (effectiveImagePath.empty() && !imageLocalPath.empty()) {
+                    DWORD attr = GetFileAttributesA(imageLocalPath.c_str());
                     if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
-                        // 직접 UNC 접근 가능
-                        effectiveImagePath = netPath;
-                    } else {
-                        // UNC 직접 접근 불가 시 WinPE SMB 세션 확보를 위해 Z: 드라이브 마운트 시도
-                        size_t p1 = netPath.find('\\', 2);
-                        if (p1 != std::string::npos) {
-                            size_t p2 = netPath.find('\\', p1 + 1);
-                            std::string uncShare = (p2 != std::string::npos) ? netPath.substr(0, p2) : netPath;
-                            std::string subFile = (p2 != std::string::npos) ? netPath.substr(p2 + 1) : imageName;
+                        effectiveImagePath = imageLocalPath;
+                    }
+                }
 
-                            std::cout << "[*] SMB 네트워크 공유 연결 시도: " << uncShare << " -> Z:\n";
-                            system("net use Z: /delete /y >nul 2>&1");
+                // 3순위: 네트워크 공유 경로 처리
+                if (effectiveImagePath.empty() && !imageNetworkPath.empty()) {
+                    std::string netPath = imageNetworkPath;
+                    // 앞뒤 공백 및 따옴표 제거
+                    while (!netPath.empty() && (netPath.front() == ' ' || netPath.front() == '"' || netPath.front() == '\'')) netPath.erase(netPath.begin());
+                    while (!netPath.empty() && (netPath.back() == ' ' || netPath.back() == '"' || netPath.back() == '\'')) netPath.pop_back();
 
-                            std::string netCmd = "net use Z: \"" + uncShare + "\" /persistent:no >nul 2>&1";
-                            int r = system(netCmd.c_str());
-                            if (r != 0) {
-                                // 게스트 권한으로 재시도
-                                std::string guestCmd = "net use Z: \"" + uncShare + "\" \"\" /user:guest /persistent:no >nul 2>&1";
-                                system(guestCmd.c_str());
-                            }
+                    // 127.0.0.1 또는 localhost는 WinPE 클라이언트 입장에서 자기 자신이므로 실제 마스터 IP로 치환
+                    size_t l1 = netPath.find("127.0.0.1");
+                    if (l1 != std::string::npos) netPath.replace(l1, 9, masterIp);
+                    size_t l2 = netPath.find("localhost");
+                    if (l2 != std::string::npos) netPath.replace(l2, 9, masterIp);
 
-                            std::string zCandidate = "Z:\\" + subFile;
-                            DWORD zAttr = GetFileAttributesA(zCandidate.c_str());
-                            if (zAttr != INVALID_FILE_ATTRIBUTES && !(zAttr & FILE_ATTRIBUTE_DIRECTORY)) {
-                                effectiveImagePath = zCandidate;
-                                std::cout << "[+] Z: 드라이브 마운트 성공 및 WIM 파일 확인: " << effectiveImagePath << "\n";
+                    // UNC 경로인 경우 (예: \\192.168.0.50\images\Win11_Universal.wim)
+                    if (netPath.rfind("\\\\", 0) == 0) {
+                        DWORD attr = GetFileAttributesA(netPath.c_str());
+                        if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+                            // 직접 UNC 접근 가능
+                            effectiveImagePath = netPath;
+                        } else {
+                            // UNC 직접 접근 불가 시 WinPE SMB 세션 확보를 위해 Z: 드라이브 마운트 시도
+                            size_t p1 = netPath.find('\\', 2);
+                            if (p1 != std::string::npos) {
+                                size_t p2 = netPath.find('\\', p1 + 1);
+                                std::string uncShare = (p2 != std::string::npos) ? netPath.substr(0, p2) : netPath;
+                                std::string subFile = (p2 != std::string::npos) ? netPath.substr(p2 + 1) : imageName;
+
+                                std::cout << "[*] SMB 네트워크 공유 연결 시도: " << uncShare << " -> Z:\n";
+                                system("net use Z: /delete /y >nul 2>&1");
+
+                                std::string netCmd = "net use Z: \"" + uncShare + "\" /persistent:no >nul 2>&1";
+                                int r = system(netCmd.c_str());
+                                if (r != 0) {
+                                    // 게스트 권한으로 재시도
+                                    std::string guestCmd = "net use Z: \"" + uncShare + "\" \"\" /user:guest /persistent:no >nul 2>&1";
+                                    system(guestCmd.c_str());
+                                }
+
+                                std::string zCandidate = "Z:\\" + subFile;
+                                DWORD zAttr = GetFileAttributesA(zCandidate.c_str());
+                                if (zAttr != INVALID_FILE_ATTRIBUTES && !(zAttr & FILE_ATTRIBUTE_DIRECTORY)) {
+                                    effectiveImagePath = zCandidate;
+                                    std::cout << "[+] Z: 드라이브 마운트 성공 및 WIM 파일 확인: " << effectiveImagePath << "\n";
+                                } else {
+                                    effectiveImagePath = netPath;
+                                }
                             } else {
                                 effectiveImagePath = netPath;
                             }
-                        } else {
-                            effectiveImagePath = netPath;
                         }
+                    } else {
+                        effectiveImagePath = netPath;
                     }
+                }
+
+                if (effectiveImagePath.empty()) {
+                    effectiveImagePath = "C:\\images\\" + (imageName.empty() ? "install.wim" : imageName);
+                }
+
+                std::cout << "[단계 2/3] OS WIM 이미지 적용(더빙) 시작... (Step 2/3: Applying WIM Image...)\n";
+                std::cout << "  - WIM 경로: " << effectiveImagePath << "\n";
+
+                DeployEngine::DeployParams dParams;
+                dParams.imagePath = effectiveImagePath;
+                dParams.imageIndex = imageIndex;
+                dParams.targetDrive = targetDrive;
+                dParams.bootDrive = bootDrive;
+                dParams.runBcdBoot = true;
+
+                DeployEngine::DeployResult deployRes = DeployEngine::ApplyWimImage(dParams, [&](const DeployEngine::DeployProgress& prog) {
+                    std::cout << "\r[*] " << prog.step << ": " << (int)prog.percent << "% (ETA: " << prog.remainingSeconds << "s)   " << std::flush;
+
+                    SimpleJson::JsonValue p = SimpleJson::JsonValue::CreateObject();
+                    p.Set("type", "CLIENT_PROGRESS");
+                    p.Set("status", "IMAGING");
+                    p.Set("step", prog.step);
+                    p.Set("percent", prog.percent);
+                    p.Set("speedMbps", prog.speedMbps);
+                    p.Set("elapsedSeconds", prog.elapsedSeconds);
+                    p.Set("remainingSeconds", prog.remainingSeconds);
+                    p.Set("detailMessage", prog.detail);
+                    client.SendJsonMessage(p.ToString());
+                });
+
+                std::cout << "\n";
+
+                // (3) 결과 보고
+                SimpleJson::JsonValue finalResult = SimpleJson::JsonValue::CreateObject();
+                finalResult.Set("type", "CLIENT_RESULT");
+                if (deployRes.success) {
+                    std::cout << "[+] [성공] OS 이미지 더빙 및 부트로더 구성 완료! (SUCCESS: Image Applied! Time: " << deployRes.durationSeconds << "s)\n";
+                    finalResult.Set("status", "SUCCESS");
+                    finalResult.Set("totalDurationSeconds", deployRes.durationSeconds);
+                    finalResult.Set("errorMessage", "");
+                    client.SendJsonMessage(finalResult.ToString());
+                    std::cout << "[*] 배포 성공 보고 완료.\n";
+                    deployedSuccessfully = true;
+                    break;
                 } else {
-                    effectiveImagePath = netPath;
+                    std::cerr << "[-] [실패] 이미지 배포 실패 (FAILED: Deploy Failed): " << deployRes.errorMessage << "\n";
+                    finalResult.Set("status", "FAILED");
+                    finalResult.Set("totalDurationSeconds", deployRes.durationSeconds);
+                    finalResult.Set("errorMessage", deployRes.errorMessage);
+                    client.SendJsonMessage(finalResult.ToString());
+                    std::cout << "[*] 배포 실패 보고 완료. 마스터 서버의 재시도 명령 대기 중... (Failed. Waiting for retry command from Master...)\n";
+                    continue;
                 }
             }
-
-            if (effectiveImagePath.empty()) {
-                effectiveImagePath = "C:\\images\\" + (imageName.empty() ? "install.wim" : imageName);
-            }
-
-            std::cout << "[단계 2/3] OS WIM 이미지 적용(더빙) 시작... (Step 2/3: Applying WIM Image...)\n";
-            std::cout << "  - WIM 경로: " << effectiveImagePath << "\n";
-
-            DeployEngine::DeployParams dParams;
-            dParams.imagePath = effectiveImagePath;
-            dParams.imageIndex = imageIndex;
-            dParams.targetDrive = targetDrive;
-            dParams.bootDrive = bootDrive;
-            dParams.runBcdBoot = true;
-
-            DeployEngine::DeployResult deployRes = DeployEngine::ApplyWimImage(dParams, [&](const DeployEngine::DeployProgress& prog) {
-                std::cout << "\r[*] " << prog.step << ": " << (int)prog.percent << "% (ETA: " << prog.remainingSeconds << "s)   " << std::flush;
-
-                SimpleJson::JsonValue p = SimpleJson::JsonValue::CreateObject();
-                p.Set("type", "CLIENT_PROGRESS");
-                p.Set("status", "IMAGING");
-                p.Set("step", prog.step);
-                p.Set("percent", prog.percent);
-                p.Set("speedMbps", prog.speedMbps);
-                p.Set("elapsedSeconds", prog.elapsedSeconds);
-                p.Set("remainingSeconds", prog.remainingSeconds);
-                p.Set("detailMessage", prog.detail);
-                client.SendJsonMessage(p.ToString());
-            });
-
-            std::cout << "\n";
-
-            // (3) 결과 보고
-            SimpleJson::JsonValue finalResult = SimpleJson::JsonValue::CreateObject();
-            finalResult.Set("type", "CLIENT_RESULT");
-            if (deployRes.success) {
-                std::cout << "[+] [성공] OS 이미지 더빙 및 부트로더 구성 완료! (SUCCESS: Image Applied! Time: " << deployRes.durationSeconds << "s)\n";
-                finalResult.Set("status", "SUCCESS");
-                finalResult.Set("totalDurationSeconds", deployRes.durationSeconds);
-                finalResult.Set("errorMessage", "");
-                client.SendJsonMessage(finalResult.ToString());
-                std::cout << "[*] 배포 성공 보고 완료. 시스템 재부팅 준비 중... (Process completed. Ready for reboot.)\n";
-                break;
-            } else {
-                std::cerr << "[-] [실패] 이미지 배포 실패 (FAILED: Deploy Failed): " << deployRes.errorMessage << "\n";
-                finalResult.Set("status", "FAILED");
-                finalResult.Set("totalDurationSeconds", deployRes.durationSeconds);
-                finalResult.Set("errorMessage", deployRes.errorMessage);
-                client.SendJsonMessage(finalResult.ToString());
-                std::cout << "[*] 배포 실패 보고 완료. 마스터 서버의 재시도 명령 대기 중... (Failed. Waiting for retry command from Master...)\n";
-                continue;
-            }
         }
+
+        // 성공한 경우 시스템 자동 재부팅 수행
+        if (deployedSuccessfully) {
+            std::cout << "\n=========================================================\n";
+            std::cout << " [★ 배포 성공] 모든 이미지 더빙 및 부트로더 작업이 완료되었습니다!\n";
+            std::cout << " [*] 5초 후 클라이언트 PC가 자동으로 재부팅됩니다...\n";
+            std::cout << "=========================================================\n";
+            for (int sec = 5; sec > 0; --sec) {
+                std::cout << "[*] " << sec << "초 후 시스템이 재부팅됩니다... (취소: Ctrl+C)   \r" << std::flush;
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+            std::cout << "\n[*] 시스템 재부팅 명령을 실행합니다 (wpeutil reboot)...\n";
+            client.Close();
+            system("wpeutil reboot");
+            system("shutdown /r /t 0 /f");
+            ExitWindowsEx(EWX_REBOOT | EWX_FORCE, 0);
+            return 0;
+        }
+
+        // 마스터 프로그램이 종료되거나 연결이 끊어졌을 때: 종료되지 않고 대기 후 재연결 시도
+        std::cout << "\n[!] 마스터 프로그램과의 연결이 종료되었습니다. (Master disconnected)\n";
+        std::cout << "[*] 대기 모드로 전환합니다. 마스터 프로그램 재실행 시 자동으로 다시 연결됩니다...\n\n";
+        client.Close();
+        std::this_thread::sleep_for(std::chrono::seconds(2));
     }
 
     std::cout << "[*] 클라이언트 세션 종료. (Session closed.)\n";

@@ -15,10 +15,18 @@ ping 127.0.0.1 -n 3 > nul
 :: 3. 네트워크 어댑터 IP 상태 확인
 ipconfig | findstr /i "IPv4"
 
-:: 4. 다중 PC 이미지 더빙 에이전트 자동 실행
+:: 4. 다중 PC 이미지 더빙 에이전트 자동 실행 루프
+:AGENT_LOOP
 echo Starting PeImagingAgent.exe...
-X:\Windows\System32\PeImagingAgent.exe
+if exist "X:\Windows\System32\PeImagingAgent.exe" (
+    X:\Windows\System32\PeImagingAgent.exe
+) else if exist "X:\PeImagingAgent.exe" (
+    X:\PeImagingAgent.exe
+) else (
+    PeImagingAgent.exe
+)
 
-:: 에이전트 종료 시(더빙 완료) 시스템 재부팅
-echo Imaging process ended. Rebooting system in 5 seconds...
-wpeutil reboot
+echo.
+echo PeImagingAgent가 종료되었습니다. 5초 후 자동으로 재시작합니다... (중지하려면 Ctrl+C)
+ping 127.0.0.1 -n 6 > nul
+goto AGENT_LOOP
