@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Windows.Forms;
 using MultiDeployOS.Master.Forms;
+using MultiDeployOS.Master.Models;
+using MultiDeployOS.Master.Services;
 
 namespace MultiDeployOS.Master
 {
@@ -11,33 +14,6 @@ namespace MultiDeployOS.Master
         {
             string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.log");
             System.IO.File.AppendAllText(logPath, $"[{DateTime.Now}] App Main started\n");
-
-            if (args.Length > 0 && args[0] == "--test-render")
-            {
-                ApplicationConfiguration.Initialize();
-                var cfg = new MultiDeployOS.Master.Services.ConfigManager();
-                
-                using (var pForm = new PolicyEditorForm(cfg))
-                {
-                    pForm.Show();
-                    Application.DoEvents();
-                    var bmp = new System.Drawing.Bitmap(pForm.Width, pForm.Height);
-                    pForm.DrawToBitmap(bmp, new System.Drawing.Rectangle(0, 0, pForm.Width, pForm.Height));
-                    bmp.Save(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "test_policy_form.png"), System.Drawing.Imaging.ImageFormat.Png);
-                    pForm.Close();
-                }
-
-                using (var rForm = new ImageRuleEditorForm(cfg))
-                {
-                    rForm.Show();
-                    Application.DoEvents();
-                    var bmp = new System.Drawing.Bitmap(rForm.Width, rForm.Height);
-                    rForm.DrawToBitmap(bmp, new System.Drawing.Rectangle(0, 0, rForm.Width, rForm.Height));
-                    bmp.Save(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "test_rule_form.png"), System.Drawing.Imaging.ImageFormat.Png);
-                    rForm.Close();
-                }
-                return;
-            }
 
             AppDomain.CurrentDomain.UnhandledException += (s, e) =>
             {

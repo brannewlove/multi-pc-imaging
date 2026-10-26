@@ -181,6 +181,34 @@ namespace MultiDeployOS.Master.Services
             }
             catch (Exception ex) { Console.WriteLine("[-] image_catalog.json 로드 실패: " + ex.Message); }
 
+            // 만약 현재 설정 디렉터리에 규칙이 1개(기본 fallback) 이하이면 소스 디렉터리(MasterApp/config)의 전체 규칙 복사
+            if (ImageCatalog.Count <= 1)
+            {
+                string[] candidates = new[]
+                {
+                    Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "MasterApp", "config", "image_catalog.json")),
+                    Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "MasterApp", "config", "image_catalog.json")),
+                    Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "MasterApp", "config", "image_catalog.json"))
+                };
+                foreach (var cand in candidates)
+                {
+                    if (File.Exists(cand) && cand != path)
+                    {
+                        try
+                        {
+                            var fromSrc = JsonSerializer.Deserialize<List<ImageRule>>(File.ReadAllText(cand), JsonOptions);
+                            if (fromSrc != null && fromSrc.Count > ImageCatalog.Count)
+                            {
+                                ImageCatalog = fromSrc;
+                                SaveImageCatalog();
+                                break;
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+
             if (ImageCatalog.Count == 0)
             {
                 ImageCatalog.Add(new ImageRule

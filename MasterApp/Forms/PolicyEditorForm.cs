@@ -36,12 +36,17 @@ namespace MultiDeployOS.Master.Forms
         private void InitializeComponent()
         {
             this.Text = "파티션 권장양식 관리";
-            this.Size = new Size(1180, 780);
-            this.MinimumSize = new Size(950, 650);
-            this.StartPosition = FormStartPosition.CenterParent;
             this.Font = new Font("맑은 고딕", 9.5f);
             this.BackColor = Color.FromArgb(24, 28, 36);
             this.ForeColor = Color.White;
+            this.AutoScaleMode = AutoScaleMode.Dpi;
+
+            Rectangle workArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1366, 768);
+            int targetW = Math.Min(1180, Math.Max(880, workArea.Width - 40));
+            int targetH = Math.Min(760, Math.Max(540, workArea.Height - 50));
+            this.Size = new Size(targetW, targetH);
+            this.MinimumSize = new Size(880, 520);
+            this.StartPosition = FormStartPosition.CenterParent;
 
             // 좌측 목록 패널 (고정 너비 330px)
             var pnlLeft = new Panel

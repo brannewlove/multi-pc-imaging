@@ -71,12 +71,18 @@ namespace MultiDeployOS.Master.Forms
         private void InitializeComponent()
         {
             this.Text = "MultiDeployOS Master - 다중 PC 이미지 배포 관제 시스템";
-            this.Size = new Size(1400, 880);
-            this.MinimumSize = new Size(1150, 680);
-            this.StartPosition = FormStartPosition.CenterScreen;
             this.Font = new Font("맑은 고딕", 9.5f);
             this.BackColor = Color.FromArgb(17, 24, 39);
             this.ForeColor = Color.White;
+            this.AutoScaleMode = AutoScaleMode.Dpi;
+
+            // 다양한 외부 모니터 및 노트북 해상도(DPI 125%/150%)에 맞게 반응형 기본 크기 산출
+            Rectangle workArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1366, 768);
+            int targetW = Math.Min(1400, Math.Max(1024, workArea.Width - 40));
+            int targetH = Math.Min(860, Math.Max(600, workArea.Height - 60));
+            this.Size = new Size(targetW, targetH);
+            this.MinimumSize = new Size(960, 560);
+            this.StartPosition = FormStartPosition.CenterScreen;
 
             // ====================================================================
             // 1. 최상단 통합 고정 패널 (헤더 + 메트릭 카드 + 툴바)
@@ -97,34 +103,43 @@ namespace MultiDeployOS.Master.Forms
                 Padding = new Padding(16, 8, 16, 8)
             };
 
+            var pnlHeaderLeft = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Left,
+                AutoSize = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Padding = new Padding(0, 4, 0, 0)
+            };
+
             var lblLogo = new Label
             {
                 Text = "⚡ MultiDeployOS Master",
                 Font = new Font("맑은 고딕", 12f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(56, 189, 248),
                 AutoSize = true,
-                Location = new Point(16, 16)
+                Margin = new Padding(0, 6, 16, 0)
             };
-            pnlHeader.Controls.Add(lblLogo);
-
             _lblServerStatus = new Label
             {
                 Text = "● 서버 가동 중 (UDP: 39200 | TCP: 39201)",
                 Font = new Font("맑은 고딕", 9f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(52, 211, 153),
                 AutoSize = true,
-                Location = new Point(270, 20)
+                Margin = new Padding(0, 10, 0, 0)
             };
-            pnlHeader.Controls.Add(_lblServerStatus);
+            pnlHeaderLeft.Controls.Add(lblLogo);
+            pnlHeaderLeft.Controls.Add(_lblServerStatus);
+            pnlHeader.Controls.Add(pnlHeaderLeft);
 
             var pnlTopButtons = new FlowLayoutPanel
             {
                 Dock = DockStyle.Right,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                WrapContents = false, // 절대 수직 줄바꿈 금지
+                WrapContents = false, // 수직 줄바꿈 방지
                 FlowDirection = FlowDirection.LeftToRight,
-                Padding = new Padding(0, 10, 12, 0)
+                Padding = new Padding(0, 6, 0, 0)
             };
 
             _btnAutoApproveToggle = CreateButton("⚡ 자동 승인: ON", Color.FromArgb(5, 150, 105));
@@ -179,25 +194,34 @@ namespace MultiDeployOS.Master.Forms
             pnlMetrics.Controls.Add(CreateMetricCard("배포 완료 (성공)", _valSuccess = new Label(), Color.FromArgb(74, 222, 128)), 3, 0);
             pnlMetrics.Controls.Add(CreateMetricCard("오류 / 실패", _valFailed = new Label(), Color.FromArgb(248, 113, 113)), 4, 0);
 
-            // 1-3. 툴바 (탭 버튼 + 검색 + 필터 + 테이블 설정, 52px)
+            // 1-3. 툴바 (탭 버튼 좌측 도킹, 검색/필터 우측 도킹 반응형)
             var pnlToolbar = new Panel
             {
                 Dock = DockStyle.Top,
                 Height = 52,
                 BackColor = Color.FromArgb(30, 41, 59),
-                Padding = new Padding(12, 8, 12, 8)
+                Padding = new Padding(12, 6, 12, 6)
+            };
+
+            var pnlToolbarLeft = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Left,
+                AutoSize = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Padding = new Padding(0, 2, 0, 0)
             };
 
             _btnTabLive = new Button
             {
                 Text = "🖥️ 실시간 타깃 PC 관제",
-                Location = new Point(12, 9),
                 Size = new Size(185, 34),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(14, 165, 233),
                 ForeColor = Color.White,
                 Font = new Font("맑은 고딕", 9.5f, FontStyle.Bold),
-                Cursor = Cursors.Hand
+                Cursor = Cursors.Hand,
+                Margin = new Padding(0, 0, 8, 0)
             };
             _btnTabLive.FlatAppearance.BorderSize = 0;
             _btnTabLive.Click += (s, e) => SwitchTab(true);
@@ -205,48 +229,80 @@ namespace MultiDeployOS.Master.Forms
             _btnTabHistory = new Button
             {
                 Text = "📜 배포 완료 이력 (0)",
-                Location = new Point(203, 9),
                 Size = new Size(175, 34),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(51, 65, 85),
                 ForeColor = Color.FromArgb(203, 213, 225),
                 Font = new Font("맑은 고딕", 9.5f),
-                Cursor = Cursors.Hand
+                Cursor = Cursors.Hand,
+                Margin = new Padding(0, 0, 8, 0)
             };
             _btnTabHistory.FlatAppearance.BorderSize = 0;
             _btnTabHistory.Click += (s, e) => SwitchTab(false);
 
-            pnlToolbar.Controls.Add(_btnTabLive);
-            pnlToolbar.Controls.Add(_btnTabHistory);
+            pnlToolbarLeft.Controls.Add(_btnTabLive);
+            pnlToolbarLeft.Controls.Add(_btnTabHistory);
 
-            var lblSearch = new Label { Text = "🔍 검색:", AutoSize = true, Location = new Point(410, 17), ForeColor = Color.FromArgb(148, 163, 184) };
-            _txtSearch = new TextBox { Location = new Point(465, 13), Width = 190, BackColor = Color.FromArgb(15, 23, 42), ForeColor = Color.White, BorderStyle = BorderStyle.FixedSingle, Font = new Font("맑은 고딕", 9.5f) };
+            var pnlToolbarRight = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Right,
+                AutoSize = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Padding = new Padding(0, 4, 0, 0)
+            };
+
+            var lblSearch = new Label
+            {
+                Text = "🔍 검색:",
+                AutoSize = true,
+                ForeColor = Color.FromArgb(148, 163, 184),
+                Margin = new Padding(0, 6, 4, 0)
+            };
+            _txtSearch = new TextBox
+            {
+                Width = 180,
+                BackColor = Color.FromArgb(15, 23, 42),
+                ForeColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("맑은 고딕", 9.5f),
+                Margin = new Padding(0, 2, 12, 0)
+            };
             _txtSearch.TextChanged += (s, e) => RefreshGridRows();
 
-            var lblStatus = new Label { Text = "상태 필터:", AutoSize = true, Location = new Point(665, 17), ForeColor = Color.FromArgb(148, 163, 184) };
+            var lblStatus = new Label
+            {
+                Text = "상태 필터:",
+                AutoSize = true,
+                ForeColor = Color.FromArgb(148, 163, 184),
+                Margin = new Padding(0, 6, 4, 0)
+            };
             _cboStatusFilter = new ComboBox
             {
-                Location = new Point(735, 13),
                 Width = 125,
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 BackColor = Color.FromArgb(15, 23, 42),
                 ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat
+                FlatStyle = FlatStyle.Flat,
+                Margin = new Padding(0, 2, 12, 0)
             };
             _cboStatusFilter.Items.AddRange(new object[] { "전체 상태", "승인 대기", "배포 진행 중", "배포 성공", "배포 실패" });
             _cboStatusFilter.SelectedIndex = 0;
             _cboStatusFilter.SelectedIndexChanged += (s, e) => RefreshGridRows();
 
             var btnColumnConfig = CreateButton("⚙ 테이블 열 설정", Color.FromArgb(51, 65, 85));
-            btnColumnConfig.Location = new Point(875, 10);
             btnColumnConfig.Height = 32;
+            btnColumnConfig.Margin = new Padding(0, 0, 0, 0);
             btnColumnConfig.Click += (s, e) => ShowColumnSettingsDialog();
 
-            pnlToolbar.Controls.Add(lblSearch);
-            pnlToolbar.Controls.Add(_txtSearch);
-            pnlToolbar.Controls.Add(lblStatus);
-            pnlToolbar.Controls.Add(_cboStatusFilter);
-            pnlToolbar.Controls.Add(btnColumnConfig);
+            pnlToolbarRight.Controls.Add(lblSearch);
+            pnlToolbarRight.Controls.Add(_txtSearch);
+            pnlToolbarRight.Controls.Add(lblStatus);
+            pnlToolbarRight.Controls.Add(_cboStatusFilter);
+            pnlToolbarRight.Controls.Add(btnColumnConfig);
+
+            pnlToolbar.Controls.Add(pnlToolbarRight);
+            pnlToolbar.Controls.Add(pnlToolbarLeft);
 
             // TopContainer에 순서대로 Docking: Toolbar가 아래, Metrics가 중간, Header가 최상단
             pnlTopContainer.Controls.Add(pnlToolbar);

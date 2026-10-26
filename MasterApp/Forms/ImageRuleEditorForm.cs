@@ -49,12 +49,17 @@ namespace MultiDeployOS.Master.Forms
         private void InitializeComponent()
         {
             this.Text = "마스터 이미지 폴더 및 선택 규칙 관리";
-            this.Size = new Size(1180, 780);
-            this.MinimumSize = new Size(980, 650);
-            this.StartPosition = FormStartPosition.CenterParent;
             this.Font = new Font("맑은 고딕", 9.5f);
             this.BackColor = Color.FromArgb(24, 28, 36);
             this.ForeColor = Color.White;
+            this.AutoScaleMode = AutoScaleMode.Dpi;
+
+            Rectangle workArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1366, 768);
+            int targetW = Math.Min(1180, Math.Max(880, workArea.Width - 40));
+            int targetH = Math.Min(760, Math.Max(540, workArea.Height - 50));
+            this.Size = new Size(targetW, targetH);
+            this.MinimumSize = new Size(880, 520);
+            this.StartPosition = FormStartPosition.CenterParent;
 
             var tabControl = new TabControl
             {
@@ -404,7 +409,12 @@ namespace MultiDeployOS.Master.Forms
         private void BindRuleToForm(ImageRule r)
         {
             _txtRuleName.Text = r.Name;
-            _cboBus.SelectedItem = r.Conditions?.TargetDiskType ?? "ANY (모든 버스)";
+            string busType = r.Conditions?.TargetDiskType ?? "ANY";
+            if (busType.StartsWith("ANY", StringComparison.OrdinalIgnoreCase)) _cboBus.SelectedIndex = 0;
+            else if (busType.Equals("NVMe", StringComparison.OrdinalIgnoreCase)) _cboBus.SelectedIndex = 1;
+            else if (busType.Equals("SATA", StringComparison.OrdinalIgnoreCase)) _cboBus.SelectedIndex = 2;
+            else _cboBus.SelectedIndex = 0;
+
             _txtMfg.Text = r.Conditions?.Manufacturer ?? "*";
             _txtModel.Text = r.Conditions?.ModelPattern ?? "*";
             _numMinDisk.Value = r.Conditions?.MinDiskGb ?? 0;
@@ -458,7 +468,10 @@ namespace MultiDeployOS.Master.Forms
             _currentSelectedRule.Conditions.ModelPattern = _txtModel.Text.Trim();
             _currentSelectedRule.Conditions.MinDiskGb = (int)_numMinDisk.Value;
             _currentSelectedRule.Conditions.MaxDiskGb = (int)_numMaxDisk.Value;
-            _currentSelectedRule.Conditions.TargetDiskType = _cboBus.SelectedItem?.ToString() ?? "ANY";
+
+            string selectedBus = _cboBus.SelectedItem?.ToString() ?? "ANY";
+            if (selectedBus.StartsWith("ANY", StringComparison.OrdinalIgnoreCase)) selectedBus = "ANY";
+            _currentSelectedRule.Conditions.TargetDiskType = selectedBus;
 
             _currentSelectedRule.TargetImage.ImageFileName = wim;
             _currentSelectedRule.TargetImage.ImageIndex = (int)_numWimIndex.Value;

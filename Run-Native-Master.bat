@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 setlocal
 title MultiDeployOS - Windows Native Master App
 cd /d "%~dp0"

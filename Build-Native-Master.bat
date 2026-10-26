@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 setlocal enabledelayedexpansion
 title MultiDeployOS - Native Master App Builder
 cd /d "%~dp0"
@@ -36,6 +37,10 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+
+:: 기본 설정 파일 동기화 보장
+if not exist "bin\config" mkdir "bin\config"
+copy /y "MasterApp\config\*.json" "bin\config\" >nul 2>nul
 
 echo.
 echo ================================================================
