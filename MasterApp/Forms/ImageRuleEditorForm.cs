@@ -156,11 +156,11 @@ namespace MultiDeployOS.Master.Forms
 
         private void InitRulesTab(TabPage page)
         {
-            // 좌측: 규칙 목록 리스트뷰 패널 (너비 440px 고정)
+            // 좌측: 규칙 목록 리스트뷰 패널 (너비 460px 확보)
             var pnlLeft = new Panel
             {
                 Dock = DockStyle.Left,
-                Width = 440,
+                Width = 460,
                 BackColor = Color.FromArgb(20, 24, 32),
                 Padding = new Padding(12)
             };
@@ -185,35 +185,54 @@ namespace MultiDeployOS.Master.Forms
                 BorderStyle = BorderStyle.FixedSingle,
                 Font = new Font("맑은 고딕", 9.5f)
             };
-            _lvRules.Columns.Add("우선순위", 70);
-            _lvRules.Columns.Add("규칙 이름", 170);
+            _lvRules.Columns.Add("우선순위", 75);
+            _lvRules.Columns.Add("규칙 이름", 175);
             _lvRules.Columns.Add("할당 WIM", 130);
             _lvRules.Columns.Add("상태", 55);
             _lvRules.SelectedIndexChanged += LvRules_SelectedIndexChanged;
 
-            var pnlRuleBtns = new FlowLayoutPanel
+            // 버튼 영역 (2행 2열 TableLayoutPanel 배치로 버튼 잘림 방지)
+            var pnlRuleBtns = new TableLayoutPanel
             {
                 Dock = DockStyle.Bottom,
-                Height = 48,
-                FlowDirection = FlowDirection.LeftToRight,
-                Padding = new Padding(0, 8, 0, 0)
+                Height = 84,
+                RowCount = 2,
+                ColumnCount = 2,
+                Padding = new Padding(0, 6, 0, 0)
             };
+            pnlRuleBtns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            pnlRuleBtns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            pnlRuleBtns.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+            pnlRuleBtns.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+
             _btnPriorityUp = CreateButton("▲ 우선순위 올림", Color.FromArgb(51, 65, 85));
+            _btnPriorityUp.AutoSize = false;
+            _btnPriorityUp.Dock = DockStyle.Fill;
+            _btnPriorityUp.Margin = new Padding(3);
             _btnPriorityUp.Click += (s, e) => MovePriority(-1);
 
-            _btnPriorityDown = CreateButton("▼ 내림", Color.FromArgb(51, 65, 85));
+            _btnPriorityDown = CreateButton("▼ 우선순위 내림", Color.FromArgb(51, 65, 85));
+            _btnPriorityDown.AutoSize = false;
+            _btnPriorityDown.Dock = DockStyle.Fill;
+            _btnPriorityDown.Margin = new Padding(3);
             _btnPriorityDown.Click += (s, e) => MovePriority(1);
 
-            _btnNewRule = CreateButton("+ 새 규칙", Color.FromArgb(16, 185, 129));
+            _btnNewRule = CreateButton("+ 새 규칙 추가", Color.FromArgb(16, 185, 129));
+            _btnNewRule.AutoSize = false;
+            _btnNewRule.Dock = DockStyle.Fill;
+            _btnNewRule.Margin = new Padding(3);
             _btnNewRule.Click += (s, e) => CreateNewRule();
 
-            _btnDeleteRule = CreateButton("규칙 삭제", Color.FromArgb(239, 68, 68));
+            _btnDeleteRule = CreateButton("🗑️ 규칙 삭제", Color.FromArgb(239, 68, 68));
+            _btnDeleteRule.AutoSize = false;
+            _btnDeleteRule.Dock = DockStyle.Fill;
+            _btnDeleteRule.Margin = new Padding(3);
             _btnDeleteRule.Click += (s, e) => DeleteCurrentRule();
 
-            pnlRuleBtns.Controls.Add(_btnPriorityUp);
-            pnlRuleBtns.Controls.Add(_btnPriorityDown);
-            pnlRuleBtns.Controls.Add(_btnNewRule);
-            pnlRuleBtns.Controls.Add(_btnDeleteRule);
+            pnlRuleBtns.Controls.Add(_btnPriorityUp, 0, 0);
+            pnlRuleBtns.Controls.Add(_btnPriorityDown, 1, 0);
+            pnlRuleBtns.Controls.Add(_btnNewRule, 0, 1);
+            pnlRuleBtns.Controls.Add(_btnDeleteRule, 1, 1);
 
             // 좌측 패널 컨트롤 추가 (ListView Fill, Title Top, Buttons Bottom)
             pnlLeft.Controls.Add(_lvRules);

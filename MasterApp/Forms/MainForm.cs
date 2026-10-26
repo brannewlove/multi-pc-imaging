@@ -16,7 +16,7 @@ namespace MultiDeployOS.Master.Forms
         private readonly UdpDiscoveryService _udpService;
         private readonly TcpServerService _tcpService;
 
-        private bool _globalAutoApprove = true;
+        private bool _globalAutoApprove = false;
 
         // 헤더 및 요약 컨트롤
         private Label _lblServerStatus;
@@ -32,12 +32,14 @@ namespace MultiDeployOS.Master.Forms
         private Panel _pnlContent;
         private Button _btnTabLive;
         private Button _btnTabHistory;
+        private Button _btnDeleteHistory;
 
         // DataGridView
         private DataGridView _gridClients;
         private DataGridView _gridHistory;
         private ContextMenuStrip _headerContextMenu;
         private ContextMenuStrip _rowContextMenu;
+        private ContextMenuStrip _historyContextMenu;
         private int _contextClickedColumnIndex = -1;
         private string _sortColumn = "";
         private SortOrder _sortOrder = SortOrder.None;
@@ -145,7 +147,7 @@ namespace MultiDeployOS.Master.Forms
                 Padding = new Padding(0, 6, 0, 0)
             };
 
-            _btnAutoApproveToggle = CreateButton("⚡ 자동 승인: ON", Color.FromArgb(5, 150, 105));
+            _btnAutoApproveToggle = CreateButton("⚪ 자동 승인: OFF", Color.FromArgb(71, 85, 105));
             _btnAutoApproveToggle.Click += ToggleAutoApprove;
 
             _btnBatchApprove = CreateButton("✔ 대기 PC 일괄 승인", Color.FromArgb(14, 165, 233));
@@ -217,8 +219,11 @@ namespace MultiDeployOS.Master.Forms
 
             _btnTabLive = new Button
             {
-                Text = "🖥️ 실시간 타깃 PC 관제",
-                Size = new Size(185, 34),
+                Text = "🖥️ 실시간 타깃 PC 관리",
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                MinimumSize = new Size(210, 34),
+                Padding = new Padding(14, 0, 14, 0),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(14, 165, 233),
                 ForeColor = Color.White,
@@ -232,7 +237,10 @@ namespace MultiDeployOS.Master.Forms
             _btnTabHistory = new Button
             {
                 Text = "📜 배포 완료 이력 (0)",
-                Size = new Size(175, 34),
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                MinimumSize = new Size(190, 34),
+                Padding = new Padding(14, 0, 14, 0),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(51, 65, 85),
                 ForeColor = Color.FromArgb(203, 213, 225),
@@ -254,6 +262,12 @@ namespace MultiDeployOS.Master.Forms
                 WrapContents = false,
                 Padding = new Padding(0, 4, 0, 0)
             };
+
+            _btnDeleteHistory = CreateButton("🗑️ 선택 이력 삭제", Color.FromArgb(239, 68, 68));
+            _btnDeleteHistory.Height = 32;
+            _btnDeleteHistory.Visible = false;
+            _btnDeleteHistory.Margin = new Padding(0, 0, 12, 0);
+            _btnDeleteHistory.Click += (s, e) => DeleteSelectedHistory();
 
             var lblSearch = new Label
             {
@@ -298,6 +312,7 @@ namespace MultiDeployOS.Master.Forms
             btnColumnConfig.Margin = new Padding(0, 0, 0, 0);
             btnColumnConfig.Click += (s, e) => ShowColumnSettingsDialog();
 
+            pnlToolbarRight.Controls.Add(_btnDeleteHistory);
             pnlToolbarRight.Controls.Add(lblSearch);
             pnlToolbarRight.Controls.Add(_txtSearch);
             pnlToolbarRight.Controls.Add(lblStatus);
@@ -412,6 +427,7 @@ namespace MultiDeployOS.Master.Forms
                 _gridHistory.Visible = false;
                 _gridClients.Visible = true;
                 _gridClients.BringToFront();
+                if (_btnDeleteHistory != null) _btnDeleteHistory.Visible = false;
             }
             else
             {
@@ -426,6 +442,7 @@ namespace MultiDeployOS.Master.Forms
                 _gridClients.Visible = false;
                 _gridHistory.Visible = true;
                 _gridHistory.BringToFront();
+                if (_btnDeleteHistory != null) _btnDeleteHistory.Visible = true;
                 RefreshHistoryGrid();
             }
         }
@@ -602,6 +619,7 @@ namespace MultiDeployOS.Master.Forms
                 RowHeadersVisible = false,
                 AllowUserToAddRows = false,
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                MultiSelect = true,
                 ReadOnly = true,
                 RowTemplate = { Height = 36 }
             };
@@ -637,6 +655,41 @@ namespace MultiDeployOS.Master.Forms
             _gridHistory.Columns["image"].Width = 180;
             _gridHistory.Columns["duration"].Width = 90;
             _gridHistory.Columns["error"].Width = 200;
+
+            // 이력 테이블 우클릭 메뉴
+            _historyContextMenu = new ContextMenuStrip();
+            var itemDelHist = _historyContextMenu.Items.Add("🗑️ 선택한 이력 삭제");
+            itemDelHist.Click += (s, e) => DeleteSelectedHistory();
+
+            _historyContextMenu.Items.Add(new ToolStripSeparator());
+            var itemClearHist = _historyContextMenu.Items.Add("🧹 전체 이력 모두 비우기");
+            itemClearHist.Click += (s, e) => ClearAllHistory();
+
+            _gridHistory.MouseDown += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Right)
+                {
+                    var hit = _gridHistory.HitTest(e.X, e.Y);
+                    if (hit.RowIndex >= 0 && hit.RowIndex < _gridHistory.Rows.Count)
+                    {
+                        if (!_gridHistory.Rows[hit.RowIndex].Selected)
+                        {
+                            _gridHistory.ClearSelection();
+                            _gridHistory.Rows[hit.RowIndex].Selected = true;
+                        }
+                        _historyContextMenu.Show(_gridHistory, e.Location);
+                    }
+                }
+            };
+
+            // 키보드 Delete 키로 삭제 지원
+            _gridHistory.KeyDown += (s, e) =>
+            {
+                if (e.KeyCode == Keys.Delete)
+                {
+                    DeleteSelectedHistory();
+                }
+            };
 
             _gridHistory.Paint += (s, e) =>
             {
@@ -1165,9 +1218,9 @@ namespace MultiDeployOS.Master.Forms
             }
 
             _gridHistory.Rows.Clear();
-            foreach (var h in _configManager.History.Take(50))
+            foreach (var h in _configManager.History.Take(100))
             {
-                _gridHistory.Rows.Add(
+                int rowIndex = _gridHistory.Rows.Add(
                     h.CompletedAt,
                     h.Status == "SUCCESS" ? "성공" : "실패",
                     h.ModelName,
@@ -1178,7 +1231,56 @@ namespace MultiDeployOS.Master.Forms
                     $"{h.DurationSeconds}초",
                     string.IsNullOrEmpty(h.ErrorMessage) ? "정상 완료" : h.ErrorMessage
                 );
+                _gridHistory.Rows[rowIndex].Tag = h;
             }
+        }
+
+        private void DeleteSelectedHistory()
+        {
+            if (_gridHistory.SelectedRows.Count == 0)
+            {
+                MessageBox.Show("삭제할 배포 이력 항목을 선택해 주세요.", "이력 삭제 안내", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            int count = _gridHistory.SelectedRows.Count;
+            var confirm = MessageBox.Show($"선택한 {count}개의 배포 이력을 삭제하시겠습니까?", "이력 삭제 확인", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (confirm != DialogResult.Yes) return;
+
+            var toRemove = new List<DeployHistoryItem>();
+            foreach (DataGridViewRow row in _gridHistory.SelectedRows)
+            {
+                if (row.Tag is DeployHistoryItem item)
+                {
+                    toRemove.Add(item);
+                }
+            }
+
+            foreach (var item in toRemove)
+            {
+                _configManager.History.Remove(item);
+            }
+
+            _configManager.SaveHistory();
+            RefreshHistoryGrid();
+            UpdateMetrics();
+        }
+
+        private void ClearAllHistory()
+        {
+            if (_configManager.History.Count == 0)
+            {
+                MessageBox.Show("삭제할 배포 이력이 없습니다.", "알림", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var confirm = MessageBox.Show("모든 배포 완료 이력을 완전히 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.", "전체 이력 비우기 확인", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (confirm != DialogResult.Yes) return;
+
+            _configManager.History.Clear();
+            _configManager.SaveHistory();
+            RefreshHistoryGrid();
+            UpdateMetrics();
         }
 
         private void GridClients_CellContentClick(object? sender, DataGridViewCellEventArgs e)
