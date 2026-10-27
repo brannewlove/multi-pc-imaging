@@ -95,6 +95,22 @@ namespace MultiDeployOS.Master.Forms
             this.MinimumSize = new Size(960, 560);
             this.StartPosition = FormStartPosition.CenterScreen;
 
+            // 앱 아이콘 적용
+            try
+            {
+                string iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico");
+                if (File.Exists(iconPath))
+                {
+                    this.Icon = new Icon(iconPath);
+                }
+                else
+                {
+                    var exeIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+                    if (exeIcon != null) this.Icon = exeIcon;
+                }
+            }
+            catch { }
+
             // ====================================================================
             // 1. 최상단 통합 고정 패널 (헤더 + 메트릭 카드 + 툴바)
             // ====================================================================
