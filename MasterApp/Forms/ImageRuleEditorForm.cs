@@ -327,16 +327,16 @@ namespace MultiDeployOS.Master.Forms
 
             var lblTip = new Label
             {
-                Text = "💡 와일드카드(*, ?) 입력 가능 (예: Win11_*.wim, NT950_*.wim) -> 배포 시 최신 파일 자동 매칭",
+                Text = "💡 [디폴트: 자동선택] 와일드카드(*.wim) 사용 시 폴더 내 최신 파일이 자동 매칭됩니다.\n     특정 버전을 고정하려면 위 감지 목록에서 원하는 WIM 파일을 별도로 선택하세요.",
                 AutoSize = true,
                 ForeColor = Color.FromArgb(148, 163, 184),
-                Margin = new Padding(0, 2, 0, 0),
+                Margin = new Padding(0, 3, 0, 0),
                 Font = new Font("맑은 고딕", 8.5f)
             };
 
-            pnlWimSelect.Controls.Add(new Label { Text = "감지된 WIM에서 빠른 선택:", AutoSize = true, ForeColor = Color.FromArgb(148, 163, 184) });
+            pnlWimSelect.Controls.Add(new Label { Text = "감지된 WIM에서 빠른 선택 (자동선택 디폴트 / 개별 WIM 별도선택):", AutoSize = true, ForeColor = Color.FromArgb(148, 163, 184) });
             pnlWimSelect.Controls.Add(_cboWimHelper);
-            pnlWimSelect.Controls.Add(new Label { Text = "적용 WIM 파일명 (또는 와일드카드 패턴):", AutoSize = true, ForeColor = Color.FromArgb(203, 213, 225), Margin = new Padding(0, 4, 0, 0) });
+            pnlWimSelect.Controls.Add(new Label { Text = "적용 WIM 파일명 (또는 와일드카드 자동선택 패턴):", AutoSize = true, ForeColor = Color.FromArgb(203, 213, 225), Margin = new Padding(0, 4, 0, 0) });
             pnlWimSelect.Controls.Add(_txtWimName);
             pnlWimSelect.Controls.Add(_lblWimPreview);
             pnlWimSelect.Controls.Add(lblTip);
@@ -403,7 +403,7 @@ namespace MultiDeployOS.Master.Forms
             _listScannedWims.Items.Clear();
             _cboWimHelper.Items.Clear();
             _cboWimHelper.Items.Add("-- WIM 파일 선택 또는 패턴 선택 --");
-            _cboWimHelper.Items.Add("*.wim (폴더 내 최신 WIM 자동 선택)");
+            _cboWimHelper.Items.Add("*.wim (폴더 내 최신 WIM 자동 선택 [디폴트])");
             _cboWimHelper.Items.Add("Win11_*.wim (최신 Win11 WIM 자동 선택)");
 
             if (scan.Exists && scan.Files.Count > 0)
@@ -509,14 +509,13 @@ namespace MultiDeployOS.Master.Forms
             _numMaxDisk.Value = r.Conditions?.MaxDiskGb ?? 99999;
             _chkEnabled.Checked = r.Enabled;
 
-            _txtWimName.Text = r.TargetImage?.ImageFileName ?? "Win11_Custom.wim";
+            _txtWimName.Text = r.TargetImage?.ImageFileName ?? "*.wim";
             _numWimIndex.Value = r.TargetImage?.ImageIndex ?? 1;
             _txtRuleDesc.Text = r.TargetImage?.Description ?? "";
         }
 
         private void CreateNewRule()
         {
-            string firstWim = _cboWimHelper.Items.Count > 1 ? _cboWimHelper.Items[1].ToString()! : "Win11_Custom.wim";
             _currentSelectedRule = new ImageRule
             {
                 Id = "rule-" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -524,7 +523,7 @@ namespace MultiDeployOS.Master.Forms
                 Priority = _configManager.ImageCatalog.Count(r => !r.IsFallback) + 1,
                 Enabled = true,
                 Conditions = new ImageRuleConditions { Manufacturer = "*", ModelPattern = "*" },
-                TargetImage = new TargetImageInfo { ImageFileName = firstWim, ImageIndex = 1, Description = "기종별 맞춤형 Windows 이미지 배포" }
+                TargetImage = new TargetImageInfo { ImageFileName = "*.wim", ImageIndex = 1, Description = "기종별 맞춤형 Windows 이미지 배포" }
             };
             BindRuleToForm(_currentSelectedRule);
             _txtRuleName.Focus();

@@ -122,12 +122,34 @@ namespace MultiDeployOS.Master.Services
 
         public void SaveUiSettings()
         {
+            string json = JsonSerializer.Serialize(UiSettings, JsonOptions);
             string path = Path.Combine(ConfigDir, "ui_settings.json");
             try
             {
-                File.WriteAllText(path, JsonSerializer.Serialize(UiSettings, JsonOptions));
+                File.WriteAllText(path, json);
             }
             catch (Exception ex) { Console.WriteLine("[-] ui_settings.json 저장 실패: " + ex.Message); }
+
+            // 개발/소스 환경인 경우 소스 디렉터리의 ui_settings.json도 함께 동기화 (재빌드 시 덮어쓰기 방지)
+            try
+            {
+                string[] sourceCandidates = new[]
+                {
+                    Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "MasterApp", "config", "ui_settings.json")),
+                    Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "MasterApp", "config", "ui_settings.json")),
+                    Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "MasterApp", "config", "ui_settings.json")),
+                    Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "master", "config", "ui_settings.json"))
+                };
+
+                foreach (var srcPath in sourceCandidates)
+                {
+                    if (File.Exists(srcPath) && !string.Equals(srcPath, path, StringComparison.OrdinalIgnoreCase))
+                    {
+                        File.WriteAllText(srcPath, json);
+                    }
+                }
+            }
+            catch { }
         }
 
         public void LoadPartitionPolicies()

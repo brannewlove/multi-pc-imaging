@@ -23,7 +23,7 @@ namespace MultiDeployOS.Master.Models
     public class TargetImageInfo
     {
         [JsonPropertyName("imageFileName")]
-        public string ImageFileName { get; set; } = "";
+        public string ImageFileName { get; set; } = "*.wim";
 
         [JsonPropertyName("imageIndex")]
         public int ImageIndex { get; set; } = 1;
@@ -33,6 +33,13 @@ namespace MultiDeployOS.Master.Models
 
         [JsonPropertyName("description")]
         public string Description { get; set; } = "";
+
+        /// <summary>
+        /// 와일드카드(*) 또는 패턴이 포함되어 최신 WIM을 자동 선택하는 모드인지 여부
+        /// </summary>
+        [JsonIgnore]
+        public bool IsAutoSelection =>
+            string.IsNullOrWhiteSpace(ImageFileName) || ImageFileName.Contains('*') || ImageFileName.Contains('?');
     }
 
     public class ImageRule

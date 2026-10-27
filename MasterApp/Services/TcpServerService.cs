@@ -169,18 +169,41 @@ namespace MultiDeployOS.Master.Services
                 masterDir = masterDir.Replace('/', '\\');
                 sharePath = sharePath.Replace('/', '\\');
 
-                // 와일드카드(*) 및 동일 모델명 최신 WIM 파일 자동 매칭
-                var resolvedFile = WimScanner.ResolveLatestImageFile(masterDir, rawPattern, session.System.ModelName);
-                if (resolvedFile == null && !string.IsNullOrWhiteSpace(sharePath))
-                {
-                    resolvedFile = WimScanner.ResolveLatestImageFile(sharePath, rawPattern, session.System.ModelName);
-                }
+                string targetFileName;
+                string appliedRuleName = imageRule.Name;
 
-                string targetFileName = resolvedFile?.FileName ?? rawPattern;
-                session.ResolvedImageFileName = targetFileName;
-                if (resolvedFile != null)
+                if (session.IsCustomImageSelected && !string.IsNullOrWhiteSpace(session.CustomImageFileName))
                 {
-                    Console.WriteLine($"[+] [최신 WIM 자동 선택] 패턴: '{rawPattern}' -> 최신 파일: '{targetFileName}' (수정일: {resolvedFile.ModifiedAt}, {resolvedFile.SizeGb} GB)");
+                    // 사용자가 별도로 선택한 이미지 적용
+                    string custom = session.CustomImageFileName.Trim();
+                    targetIndex = session.CustomImageIndex ?? 1;
+
+                    if (Path.IsPathRooted(custom))
+                    {
+                        targetFileName = Path.GetFileName(custom);
+                    }
+                    else
+                    {
+                        targetFileName = custom;
+                    }
+                    appliedRuleName = $"별도 선택 ({targetFileName})";
+                    Console.WriteLine($"[+] [이미지 별도 선택 적용] 클라이언트: {session.IpAddress} -> 수동 지정 파일: '{targetFileName}' (Index: {targetIndex})");
+                }
+                else
+                {
+                    // 기본(디폴트): 와일드카드(*) 및 동일 모델명 최신 WIM 파일 자동 매칭
+                    var resolvedFile = WimScanner.ResolveLatestImageFile(masterDir, rawPattern, session.System.ModelName);
+                    if (resolvedFile == null && !string.IsNullOrWhiteSpace(sharePath))
+                    {
+                        resolvedFile = WimScanner.ResolveLatestImageFile(sharePath, rawPattern, session.System.ModelName);
+                    }
+
+                    targetFileName = resolvedFile?.FileName ?? rawPattern;
+                    session.ResolvedImageFileName = targetFileName;
+                    if (resolvedFile != null)
+                    {
+                        Console.WriteLine($"[+] [최신 WIM 자동 선택(기본)] 패턴: '{rawPattern}' -> 최신 파일: '{targetFileName}' (수정일: {resolvedFile.ModifiedAt}, {resolvedFile.SizeGb} GB)");
+                    }
                 }
 
                 // 127.0.0.1 또는 localhost 자동 치환 (클라이언트와 연결된 실제 서버 LAN IP 사용)
@@ -214,7 +237,7 @@ namespace MultiDeployOS.Master.Services
                         imageInfo = new
                         {
                             ruleId = imageRule.Id,
-                            ruleName = imageRule.Name,
+                            ruleName = appliedRuleName,
                             imageName = targetFileName,
                             imageIndex = targetIndex,
                             imageLocalPath = localPath,

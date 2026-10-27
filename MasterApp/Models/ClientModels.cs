@@ -121,6 +121,50 @@ namespace MultiDeployOS.Master.Models
         public PartitionPolicy? MatchedPolicy { get; set; }
         public ImageRule? MatchedImage { get; set; }
         public string? ResolvedImageFileName { get; set; }
+
+        // 별도(수동) 이미지 선택 관련 속성
+        public bool IsCustomImageSelected { get; set; } = false;
+        public string? CustomImageFileName { get; set; }
+        public int? CustomImageIndex { get; set; }
+
+        /// <summary>
+        /// 실제 배포에 적용될 WIM 파일명 (별도 선택 시 우선, 없으면 자동 해결된 파일명)
+        /// </summary>
+        [JsonIgnore]
+        public string EffectiveImageFileName =>
+            IsCustomImageSelected && !string.IsNullOrWhiteSpace(CustomImageFileName)
+                ? CustomImageFileName
+                : (ResolvedImageFileName ?? MatchedImage?.TargetImage?.ImageFileName ?? "*.wim");
+
+        /// <summary>
+        /// 실제 배포에 적용될 WIM Index (별도 선택 시 우선, 없으면 규칙 Index)
+        /// </summary>
+        [JsonIgnore]
+        public int EffectiveImageIndex =>
+            IsCustomImageSelected && CustomImageIndex.HasValue
+                ? CustomImageIndex.Value
+                : (MatchedImage?.TargetImage?.ImageIndex ?? 1);
+
+        /// <summary>
+        /// 기본 자동 선택 모드로 리셋
+        /// </summary>
+        public void ResetToAutoImage()
+        {
+            IsCustomImageSelected = false;
+            CustomImageFileName = null;
+            CustomImageIndex = null;
+        }
+
+        /// <summary>
+        /// 별도 이미지 수동 지정
+        /// </summary>
+        public void SetCustomImage(string fileName, int index = 1)
+        {
+            IsCustomImageSelected = true;
+            CustomImageFileName = fileName;
+            CustomImageIndex = index;
+        }
+
         public ProgressInfo? Progress { get; set; }
         public ResultInfo? Result { get; set; }
 

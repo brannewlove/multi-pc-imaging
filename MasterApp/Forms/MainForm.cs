@@ -44,18 +44,24 @@ namespace MultiDeployOS.Master.Forms
         private string _sortColumn = "";
         private SortOrder _sortOrder = SortOrder.None;
 
+        // UI 설정 복원/저장 플래그 및 디바운스 타이머
+        private bool _isApplyingUiSettings = true;
+        private System.Windows.Forms.Timer? _columnSaveDebounceTimer;
+
         // 내부 상태 캐시
         private readonly Dictionary<string, ClientSession> _sessions = new();
         private System.Windows.Forms.Timer _uiRefreshTimer;
 
         public MainForm()
         {
+            _isApplyingUiSettings = true;
             _configManager = new ConfigManager();
             _udpService = new UdpDiscoveryService();
             _tcpService = new TcpServerService();
 
             InitializeComponent();
             ApplySavedUiSettings();
+            _isApplyingUiSettings = false;
 
             // 백그라운드 서버 이벤트 바인딩
             _tcpService.ClientRegistered += OnClientRegistered;
@@ -153,6 +159,9 @@ namespace MultiDeployOS.Master.Forms
             _btnBatchApprove = CreateButton("✔ 대기 PC 일괄 승인", Color.FromArgb(14, 165, 233));
             _btnBatchApprove.Click += BatchApproveAll;
 
+            var btnSelectImage = CreateButton("📀 이미지 별도 선택", Color.FromArgb(16, 185, 129));
+            btnSelectImage.Click += (s, e) => OpenSelectImageDialog();
+
             var btnOpenPolicies = CreateButton("🗂️ 파티션 권장양식", Color.FromArgb(51, 65, 85));
             btnOpenPolicies.Click += (s, e) =>
             {
@@ -160,7 +169,7 @@ namespace MultiDeployOS.Master.Forms
                 form.ShowDialog(this);
             };
 
-            var btnOpenImageRules = CreateButton("📀 이미지 선택 규칙", Color.FromArgb(51, 65, 85));
+            var btnOpenImageRules = CreateButton("🎯 이미지 선택 규칙", Color.FromArgb(51, 65, 85));
             btnOpenImageRules.Click += (s, e) =>
             {
                 using var form = new ImageRuleEditorForm(_configManager);
@@ -175,6 +184,7 @@ namespace MultiDeployOS.Master.Forms
 
             pnlTopButtons.Controls.Add(_btnAutoApproveToggle);
             pnlTopButtons.Controls.Add(_btnBatchApprove);
+            pnlTopButtons.Controls.Add(btnSelectImage);
             pnlTopButtons.Controls.Add(btnOpenPolicies);
             pnlTopButtons.Controls.Add(btnOpenImageRules);
             pnlTopButtons.Controls.Add(btnExport);
@@ -387,13 +397,22 @@ namespace MultiDeployOS.Master.Forms
 
             _rowContextMenu.Items.Add(new ToolStripSeparator());
 
+            var itemSelectImage = _rowContextMenu.Items.Add("📀 배포 이미지 별도 선택 (수동 변경)...");
+            itemSelectImage.Click += (s, e) => OpenSelectImageDialog();
+
+            var itemResetImage = _rowContextMenu.Items.Add("⚡ 기본 자동선택으로 재설정 (디폴트 복귀)");
+            itemResetImage.Click += (s, e) => ResetSelectedClientsToAutoImage();
+
+            _rowContextMenu.Items.Add(new ToolStripSeparator());
+
             var itemDetail = _rowContextMenu.Items.Add("🔍 상세 오류 및 진행 상태 확인");
             itemDetail.Click += (s, e) =>
             {
                 if (_gridClients.SelectedRows.Count > 0 && _gridClients.SelectedRows[0].Tag is ClientSession session)
                 {
                     string errMsg = string.IsNullOrEmpty(session.Result?.ErrorMessage) ? "(오류 메시지 없음)" : session.Result.ErrorMessage;
-                    string info = $"[PC 정보]\nIP: {session.IpAddress}\n모델: {session.System.Manufacturer} {session.System.ModelName}\n시리얼: {session.System.SerialNumber}\nMAC: {session.Network.PrimaryMac}\n\n[배포 상태]\n현재 상태: {session.Status}\n진행 단계: {session.Progress?.Step ?? "-"}\n진행률: {(int)(session.Progress?.Percent ?? 0)}%\n\n[오류 상세 내용]\n{errMsg}";
+                    string customTag = session.IsCustomImageSelected ? $" [별도지정: {session.CustomImageFileName}]" : " [자동선택: 최신 WIM]";
+                    string info = $"[PC 정보]\nIP: {session.IpAddress}\n모델: {session.System.Manufacturer} {session.System.ModelName}\n시리얼: {session.System.SerialNumber}\nMAC: {session.Network.PrimaryMac}\n\n[배포 상태]\n현재 상태: {session.Status}\n진행 단계: {session.Progress?.Step ?? "-"}\n진행률: {(int)(session.Progress?.Percent ?? 0)}%\n적용 이미지: {session.EffectiveImageFileName}{customTag}\n\n[오류 상세 내용]\n{errMsg}";
                     MessageBox.Show(info, $"배포 상태 상세 - {session.System.ModelName}", MessageBoxButtons.OK, session.Status == "FAILED" ? MessageBoxIcon.Error : MessageBoxIcon.Information);
                 }
             };
@@ -410,6 +429,54 @@ namespace MultiDeployOS.Master.Forms
                     UpdateMetrics();
                 }
             };
+        }
+
+        private void OpenSelectImageDialog()
+        {
+            var selectedSessions = _gridClients.SelectedRows
+                .Cast<DataGridViewRow>()
+                .Select(r => r.Tag as ClientSession)
+                .Where(s => s != null)
+                .Cast<ClientSession>()
+                .ToList();
+
+            if (selectedSessions.Count == 0)
+            {
+                MessageBox.Show("이미지를 선택할 대상 PC를 목록에서 먼저 선택해주세요.", "PC 선택 필요", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            using var dlg = new SelectImageForm(_configManager, selectedSessions);
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+            {
+                RefreshGridRows();
+                UpdateMetrics();
+            }
+        }
+
+        private void ResetSelectedClientsToAutoImage()
+        {
+            var selectedSessions = _gridClients.SelectedRows
+                .Cast<DataGridViewRow>()
+                .Select(r => r.Tag as ClientSession)
+                .Where(s => s != null)
+                .Cast<ClientSession>()
+                .ToList();
+
+            if (selectedSessions.Count == 0)
+            {
+                MessageBox.Show("기본 자동선택으로 재설정할 대상 PC를 목록에서 먼저 선택해주세요.", "PC 선택 필요", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            foreach (var s in selectedSessions)
+            {
+                s.ResetToAutoImage();
+            }
+
+            RefreshGridRows();
+            UpdateMetrics();
+            MessageBox.Show($"{selectedSessions.Count}대의 PC 이미지가 기본 자동 선택 모드로 재설정되었습니다.", "설정 완료", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void SwitchTab(bool isLive)
@@ -506,7 +573,7 @@ namespace MultiDeployOS.Master.Forms
                 AllowUserToDeleteRows = false,
                 AllowUserToOrderColumns = true, // 드래그 앤 드롭 컬럼 순서 변경 지원!
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                MultiSelect = false,
+                MultiSelect = true, // 여러 PC 일괄 선택 및 이미지 일괄 지정 지원
                 AutoGenerateColumns = false,
                 RowTemplate = { Height = 40 }
             };
@@ -531,7 +598,7 @@ namespace MultiDeployOS.Master.Forms
             AddGridColumn("mac", "MAC 주소", 140);
             AddGridColumn("disks", "디스크 사양", 180);
             AddGridColumn("policy", "적용 파티션 양식", 180);
-            AddGridColumn("image", "적용 WIM 이미지", 200);
+            AddGridColumn("image", "적용 WIM 이미지", 210);
             AddGridColumn("progress", "배포 진행 상태", 220);
             AddGridColumn("duration", "경과 시간", 100);
 
@@ -546,9 +613,16 @@ namespace MultiDeployOS.Master.Forms
 
             // 이벤트 바인딩
             _gridClients.CellContentClick += GridClients_CellContentClick;
+            _gridClients.CellDoubleClick += (s, e) =>
+            {
+                if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
+                {
+                    OpenSelectImageDialog();
+                }
+            };
             _gridClients.ColumnHeaderMouseClick += GridClients_ColumnHeaderMouseClick;
-            _gridClients.ColumnWidthChanged += (s, e) => SaveCurrentTableConfig();
-            _gridClients.ColumnDisplayIndexChanged += (s, e) => SaveCurrentTableConfig();
+            _gridClients.ColumnWidthChanged += (s, e) => ScheduleSaveTableConfig();
+            _gridClients.ColumnDisplayIndexChanged += (s, e) => ScheduleSaveTableConfig();
 
             // 빈 테이블 상태 안내 메시지 그리기
             _gridClients.Paint += (s, e) =>
@@ -583,8 +657,11 @@ namespace MultiDeployOS.Master.Forms
                     {
                         if (hit.RowIndex >= 0 && hit.RowIndex < _gridClients.Rows.Count)
                         {
-                            _gridClients.ClearSelection();
-                            _gridClients.Rows[hit.RowIndex].Selected = true;
+                            if (!_gridClients.Rows[hit.RowIndex].Selected)
+                            {
+                                _gridClients.ClearSelection();
+                                _gridClients.Rows[hit.RowIndex].Selected = true;
+                            }
                             _rowContextMenu.Show(_gridClients, e.Location);
                         }
                     }
@@ -720,46 +797,87 @@ namespace MultiDeployOS.Master.Forms
             var tc = _configManager.UiSettings.TableConfig;
             if (tc == null) return;
 
-            // 1. 너비 복원
-            foreach (var kvp in tc.Widths)
+            bool prev = _isApplyingUiSettings;
+            _isApplyingUiSettings = true;
+            try
             {
-                if (_gridClients.Columns.Contains(kvp.Key))
-                {
-                    _gridClients.Columns[kvp.Key].Width = kvp.Value;
-                }
-            }
+                _gridClients.SuspendLayout();
 
-            // 2. 숨김 복원
-            foreach (var hiddenCol in tc.Hidden)
-            {
-                if (_gridClients.Columns.Contains(hiddenCol))
+                // 1. 너비 복원
+                if (tc.Widths != null)
                 {
-                    _gridClients.Columns[hiddenCol].Visible = false;
-                }
-            }
-
-            // 3. 컬럼 표시 순서 복원
-            if (tc.Order != null && tc.Order.Count > 0)
-            {
-                int displayIndex = 0;
-                foreach (var colName in tc.Order)
-                {
-                    if (_gridClients.Columns.Contains(colName))
+                    foreach (var kvp in tc.Widths)
                     {
-                        _gridClients.Columns[colName].DisplayIndex = Math.Min(displayIndex++, _gridClients.Columns.Count - 1);
+                        if (_gridClients.Columns.Contains(kvp.Key) && kvp.Value > 20)
+                        {
+                            _gridClients.Columns[kvp.Key].Width = kvp.Value;
+                        }
+                    }
+                }
+
+                // 2. 숨김 복원
+                if (tc.Hidden != null)
+                {
+                    foreach (var hiddenCol in tc.Hidden)
+                    {
+                        if (_gridClients.Columns.Contains(hiddenCol))
+                        {
+                            _gridClients.Columns[hiddenCol].Visible = false;
+                        }
+                    }
+                }
+
+                // 3. 컬럼 표시 순서 복원
+                if (tc.Order != null && tc.Order.Count > 0)
+                {
+                    int displayIndex = 0;
+                    foreach (var colName in tc.Order)
+                    {
+                        if (_gridClients.Columns.Contains(colName))
+                        {
+                            _gridClients.Columns[colName].DisplayIndex = Math.Min(displayIndex++, _gridClients.Columns.Count - 1);
+                        }
                     }
                 }
             }
+            finally
+            {
+                _gridClients.ResumeLayout();
+                _isApplyingUiSettings = prev;
+            }
+        }
+
+        private void ScheduleSaveTableConfig()
+        {
+            if (_isApplyingUiSettings) return;
+
+            _columnSaveDebounceTimer?.Stop();
+            _columnSaveDebounceTimer?.Dispose();
+            _columnSaveDebounceTimer = new System.Windows.Forms.Timer { Interval = 350 };
+            _columnSaveDebounceTimer.Tick += (s, e) =>
+            {
+                _columnSaveDebounceTimer?.Stop();
+                _columnSaveDebounceTimer?.Dispose();
+                _columnSaveDebounceTimer = null;
+                SaveCurrentTableConfig();
+            };
+            _columnSaveDebounceTimer.Start();
         }
 
         private void SaveCurrentTableConfig()
         {
+            if (_isApplyingUiSettings) return;
+            if (this.WindowState == FormWindowState.Minimized) return;
+
             var tc = _configManager.UiSettings.TableConfig;
             tc.Hidden = _gridClients.Columns.Cast<DataGridViewColumn>().Where(c => !c.Visible).Select(c => c.Name).ToList();
             tc.Order = _gridClients.Columns.Cast<DataGridViewColumn>().OrderBy(c => c.DisplayIndex).Select(c => c.Name).ToList();
             foreach (DataGridViewColumn c in _gridClients.Columns)
             {
-                tc.Widths[c.Name] = c.Width;
+                if (c.Width > 20)
+                {
+                    tc.Widths[c.Name] = c.Width;
+                }
             }
             _configManager.SaveUiSettings();
         }
@@ -904,7 +1022,7 @@ namespace MultiDeployOS.Master.Forms
                     SerialNumber = session.System.SerialNumber,
                     MacAddress = session.Network.PrimaryMac,
                     PolicyName = session.MatchedPolicy?.Name ?? "-",
-                    ImageName = session.ResolvedImageFileName ?? session.MatchedImage?.TargetImage?.ImageFileName ?? "-",
+                    ImageName = session.EffectiveImageFileName,
                     Status = session.Status,
                     DurationSeconds = result.TotalDurationSeconds,
                     ErrorMessage = result.ErrorMessage,
@@ -1010,7 +1128,7 @@ namespace MultiDeployOS.Master.Forms
                 "mac" => s => s.Network.PrimaryMac,
                 "disks" => s => s.Disks.Sum(d => d.SizeGb),
                 "policy" => s => s.MatchedPolicy?.Name ?? "",
-                "image" => s => s.ResolvedImageFileName ?? s.MatchedImage?.TargetImage?.ImageFileName ?? "",
+                "image" => s => s.EffectiveImageFileName,
                 "progress" => s => s.Progress?.Percent ?? 0,
                 "duration" => s => s.Progress?.ElapsedSeconds ?? s.Result?.TotalDurationSeconds ?? 0,
                 _ => s => s.SessionId
@@ -1129,11 +1247,27 @@ namespace MultiDeployOS.Master.Forms
                     _ => Color.White
                 };
 
-                string rawImg = s.MatchedImage?.TargetImage?.ImageFileName ?? "-";
-                string imageDisplayText = s.ResolvedImageFileName ?? rawImg;
-                if (!string.IsNullOrEmpty(s.ResolvedImageFileName) && (rawImg.Contains('*') || rawImg.Contains('?')))
+                string imageDisplayText;
+                Color imageColor;
+
+                if (s.IsCustomImageSelected && !string.IsNullOrEmpty(s.CustomImageFileName))
                 {
-                    imageDisplayText = $"{s.ResolvedImageFileName} [최신]";
+                    imageDisplayText = $"[별도선택] {s.CustomImageFileName} (Idx:{s.CustomImageIndex ?? 1})";
+                    imageColor = Color.FromArgb(56, 189, 248); // 별도 수동 선택 시 산뜻한 하늘색
+                }
+                else
+                {
+                    string rawImg = s.MatchedImage?.TargetImage?.ImageFileName ?? "-";
+                    string baseImg = s.ResolvedImageFileName ?? rawImg;
+                    if (!string.IsNullOrEmpty(s.ResolvedImageFileName) && (rawImg.Contains('*') || rawImg.Contains('?')))
+                    {
+                        imageDisplayText = $"[자동선택] {s.ResolvedImageFileName} [최신]";
+                    }
+                    else
+                    {
+                        imageDisplayText = $"[자동선택] {baseImg}";
+                    }
+                    imageColor = Color.FromArgb(52, 211, 153); // 자동선택 기본값은 에메랄드 그린
                 }
 
                 if (existingRowMap.TryGetValue(s.SessionId, out var existingRow))
@@ -1156,6 +1290,10 @@ namespace MultiDeployOS.Master.Forms
                     {
                         existingRow.Cells["status"].Style.ForeColor = statusColor;
                     }
+                    if (existingRow.Cells["image"].Style.ForeColor != imageColor)
+                    {
+                        existingRow.Cells["image"].Style.ForeColor = imageColor;
+                    }
                 }
                 else
                 {
@@ -1176,6 +1314,7 @@ namespace MultiDeployOS.Master.Forms
                     var newRow = _gridClients.Rows[rowIdx];
                     newRow.Tag = s;
                     newRow.Cells["status"].Style.ForeColor = statusColor;
+                    newRow.Cells["image"].Style.ForeColor = imageColor;
                 }
             }
 
@@ -1408,12 +1547,26 @@ namespace MultiDeployOS.Master.Forms
             }
         }
 
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            // 폼 화면 렌더링 및 DPI 레이아웃 완료 후 저장된 너비/순서 재확인 적용
+            ApplySavedUiSettings();
+            _isApplyingUiSettings = false;
+        }
+
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             _uiRefreshTimer.Stop();
+            _columnSaveDebounceTimer?.Stop();
+            _columnSaveDebounceTimer?.Dispose();
+            _columnSaveDebounceTimer = null;
             _udpService.Stop();
             _tcpService.Stop();
-            SaveCurrentTableConfig();
+            if (!_isApplyingUiSettings && this.WindowState != FormWindowState.Minimized)
+            {
+                SaveCurrentTableConfig();
+            }
             base.OnFormClosing(e);
         }
     }
