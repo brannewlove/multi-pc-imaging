@@ -14,6 +14,9 @@ namespace MultiDeployOS.Master.Services
         private UdpClient? _udpListener;
         private CancellationTokenSource? _cts;
 
+        public string PreferredMasterIp { get; set; } = "";
+        public int HttpPort { get; set; } = 39202;
+
         public event Action<string, int>? ClientDiscovered;
 
         public void Start()
@@ -49,12 +52,16 @@ namespace MultiDeployOS.Master.Services
                     {
                         ClientDiscovered?.Invoke(result.RemoteEndPoint.Address.ToString(), result.RemoteEndPoint.Port);
 
+                        string masterIp = !string.IsNullOrWhiteSpace(PreferredMasterIp)
+                            ? PreferredMasterIp
+                            : ResolveMatchingLocalIp(result.RemoteEndPoint.Address);
+
                         var ack = new
                         {
                             type = "MASTER_DISCOVERY_ACK",
-                            masterIp = result.RemoteEndPoint.Address.ToString(),
+                            masterIp,
                             tcpPort = TcpServerService.Port,
-                            httpPort = 39202
+                            httpPort = HttpPort
                         };
                         string ackJson = JsonSerializer.Serialize(ack) + "\n";
                         byte[] ackBytes = Encoding.UTF8.GetBytes(ackJson);
@@ -71,6 +78,21 @@ namespace MultiDeployOS.Master.Services
                     Console.WriteLine($"[-] UDP 수신 루프 오류: {ex.Message}");
                 }
             }
+        }
+
+        private static string ResolveMatchingLocalIp(IPAddress remoteAddress)
+        {
+            try
+            {
+                using var probe = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                probe.Connect(remoteAddress, 39200);
+                if (probe.LocalEndPoint is IPEndPoint ep)
+                {
+                    return ep.Address.ToString();
+                }
+            }
+            catch { }
+            return "127.0.0.1";
         }
 
         public void Stop()

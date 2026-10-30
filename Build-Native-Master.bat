@@ -44,6 +44,20 @@ if errorlevel 1 (
 if not exist "bin\config" mkdir "bin\config"
 copy /y "MasterApp\config\*.json" "bin\config\" >nul 2>nul
 
+:: PXE UEFI 64-bit iPXE + wimboot 부트 에셋 동기화
+if not exist "bin\pxe" mkdir "bin\pxe"
+if exist "MasterApp\pxe\snponly.efi" copy /y "MasterApp\pxe\snponly.efi" "bin\pxe\" >nul 2>nul
+if exist "MasterApp\pxe\wimboot" copy /y "MasterApp\pxe\wimboot" "bin\pxe\" >nul 2>nul
+
+:: WinPE 원클릭 에이전트 자동 주입용 바이너리 동기화
+if not exist "bin\agent" mkdir "bin\agent"
+if exist "client\build\Release\PeImagingAgent.exe" (
+    copy /y "client\build\Release\PeImagingAgent.exe" "bin\agent\" >nul 2>nul
+) else if exist "client\build\PeImagingAgent.exe" (
+    copy /y "client\build\PeImagingAgent.exe" "bin\agent\" >nul 2>nul
+)
+if exist "client\scripts\startnet.cmd" copy /y "client\scripts\startnet.cmd" "bin\agent\" >nul 2>nul
+
 echo.
 echo ================================================================
 echo  [SUCCESS] Native Master App built successfully!

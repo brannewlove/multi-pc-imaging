@@ -15,6 +15,8 @@ namespace MultiDeployOS.Master.Forms
         private readonly ConfigManager _configManager;
         private readonly UdpDiscoveryService _udpService;
         private readonly TcpServerService _tcpService;
+        private readonly PxeServerCoordinator _pxeCoordinator;
+        private Button _btnPxeServer = null!;
 
         private bool _globalAutoApprove = false;
 
@@ -77,6 +79,23 @@ namespace MultiDeployOS.Master.Forms
             // 서버 구동
             _udpService.Start();
             _tcpService.Start();
+
+            // PXE / DHCP 초고속 부팅 코디네이터 초기화 및 자동 가동 연동
+            _pxeCoordinator = new PxeServerCoordinator(_configManager);
+            _pxeCoordinator.ClientBootUpdated += OnPxeClientBootUpdated;
+            _pxeCoordinator.RunningStateChanged += _ =>
+            {
+                if (this.IsHandleCreated && !this.IsDisposed)
+                {
+                    this.BeginInvoke(new Action(UpdateServerStatusBanner));
+                }
+            };
+
+            if (_configManager.ServerConfig.Pxe.Enabled)
+            {
+                _pxeCoordinator.Start();
+            }
+            UpdateServerStatusBanner();
         }
 
         private void InitializeComponent()
@@ -149,12 +168,17 @@ namespace MultiDeployOS.Master.Forms
             };
             _lblServerStatus = new Label
             {
-                Text = "● 서버 가동 중 (UDP: 39200 | TCP: 39201)",
+                Text = "● 에이전트: 39200/39201 | PXE 부팅 서버: 중지됨",
                 Font = new Font("맑은 고딕", 9f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(52, 211, 153),
                 AutoSize = true,
                 Margin = new Padding(0, 10, 0, 0)
             };
+            pnlHeaderLeft.FlowDirection = FlowDirection.TopDown;
+            pnlHeaderLeft.Padding = new Padding(0, 0, 0, 0);
+            lblLogo.Margin = new Padding(0, 0, 0, 1);
+            _lblServerStatus.Font = new Font("맑은 고딕", 8.25f, FontStyle.Bold);
+            _lblServerStatus.Margin = new Padding(2, 0, 0, 0);
             pnlHeaderLeft.Controls.Add(lblLogo);
             pnlHeaderLeft.Controls.Add(_lblServerStatus);
             pnlHeader.Controls.Add(pnlHeaderLeft);
@@ -198,6 +222,10 @@ namespace MultiDeployOS.Master.Forms
             var btnImport = CreateButton("📥 설정 복원", Color.FromArgb(71, 85, 105));
             btnImport.Click += ImportSettings;
 
+            _btnPxeServer = CreateButton("🌐 PXE 서버: OFF", Color.FromArgb(51, 65, 85));
+            _btnPxeServer.Click += (s, e) => OpenPxeSettingsDialog();
+
+            pnlTopButtons.Controls.Add(_btnPxeServer);
             pnlTopButtons.Controls.Add(_btnAutoApproveToggle);
             pnlTopButtons.Controls.Add(_btnBatchApprove);
             pnlTopButtons.Controls.Add(btnSelectImage);
@@ -329,7 +357,7 @@ namespace MultiDeployOS.Master.Forms
                 FlatStyle = FlatStyle.Flat,
                 Margin = new Padding(0, 2, 12, 0)
             };
-            _cboStatusFilter.Items.AddRange(new object[] { "전체 상태", "승인 대기", "배포 진행 중", "배포 성공", "배포 실패" });
+            _cboStatusFilter.Items.AddRange(new object[] { "전체 상태", "PXE 부팅 중", "승인 대기", "배포 진행 중", "배포 성공", "배포 실패" });
             _cboStatusFilter.SelectedIndex = 0;
             _cboStatusFilter.SelectedIndexChanged += (s, e) => RefreshGridRows();
 
@@ -404,6 +432,7 @@ namespace MultiDeployOS.Master.Forms
                 if (_gridClients.SelectedRows.Count > 0 && _gridClients.SelectedRows[0].Tag is ClientSession session)
                 {
                     session.Status = "READY";
+                    _pxeCoordinator.ClearMacDeployCompleted(session.Network.PrimaryMac);
                     session.Result = null;
                     session.Progress = null;
                     RefreshGridRows();
@@ -976,11 +1005,132 @@ namespace MultiDeployOS.Master.Forms
         // ====================================================================
         // 통신 이벤트 수신 및 자동 매칭 / 자동 승인
         // ====================================================================
+        private void OpenPxeSettingsDialog()
+        {
+            using var dlg = new PxeSettingsForm(_configManager, _pxeCoordinator);
+            dlg.ShowDialog(this);
+            UpdateServerStatusBanner();
+        }
+
+        private void UpdateServerStatusBanner()
+        {
+            if (_pxeCoordinator == null) return;
+
+            if (_pxeCoordinator.IsRunning)
+            {
+                string modeTag = _configManager.ServerConfig.Pxe.DhcpMode == "PROXY" ? "ProxyDHCP" : "Standalone DHCP";
+                _lblServerStatus.Text = $"● Agent:39201 | PXE 가동 중 ({_pxeCoordinator.ActiveBindIp}, {modeTag})";
+                _lblServerStatus.ForeColor = Color.FromArgb(52, 211, 153);
+
+                _btnPxeServer.Text = "🌐 PXE 서버: ON";
+                _btnPxeServer.BackColor = Color.FromArgb(2, 132, 199);
+
+                _udpService.PreferredMasterIp = _pxeCoordinator.ActiveBindIp;
+                _udpService.HttpPort = _pxeCoordinator.HttpBootService.Port;
+            }
+            else
+            {
+                _lblServerStatus.Text = "● Agent 가동 중 (39200/39201) | PXE 서버: OFF";
+                _lblServerStatus.ForeColor = Color.FromArgb(148, 163, 184);
+
+                _btnPxeServer.Text = "🌐 PXE 서버: OFF";
+                _btnPxeServer.BackColor = Color.FromArgb(51, 65, 85);
+
+                _udpService.PreferredMasterIp = "";
+            }
+        }
+
+        private void OnPxeClientBootUpdated(PxeClientBootUpdate update)
+        {
+            if (!this.IsHandleCreated || this.IsDisposed) return;
+
+            this.BeginInvoke(new Action(() =>
+            {
+                string normMac = NetworkUtility.NormalizeMac(update.MacAddress);
+                if (string.IsNullOrEmpty(normMac)) return;
+
+                // 이미 WinPE 에이전트가 TCP로 정식 연결된 활성 세션이 있으면 덮어쓰지 않음
+                bool hasLiveAgent = _sessions.Values.Any(s =>
+                    s.Status != "PXE_BOOT" &&
+                    string.Equals(NetworkUtility.NormalizeMac(s.Network.PrimaryMac), normMac, StringComparison.OrdinalIgnoreCase));
+                if (hasLiveAgent) return;
+
+                string pxeSessionId = "PXE-" + normMac;
+                if (!_sessions.TryGetValue(pxeSessionId, out var session))
+                {
+                    session = new ClientSession
+                    {
+                        SessionId = pxeSessionId,
+                        Status = "PXE_BOOT",
+                        ConnectedAt = DateTime.Now
+                    };
+                    session.Network.PrimaryMac = normMac;
+                    _sessions[pxeSessionId] = session;
+                }
+
+                if (!string.IsNullOrWhiteSpace(update.IpAddress))
+                {
+                    session.IpAddress = update.IpAddress;
+                    session.Network.IpAddress = update.IpAddress;
+                }
+                if (!string.IsNullOrWhiteSpace(update.Manufacturer))
+                    session.System.Manufacturer = update.Manufacturer;
+                if (!string.IsNullOrWhiteSpace(update.ModelName))
+                    session.System.ModelName = update.ModelName;
+                if (!string.IsNullOrWhiteSpace(update.SerialNumber))
+                    session.System.SerialNumber = update.SerialNumber;
+                if (!string.IsNullOrWhiteSpace(update.Uuid))
+                    session.System.Uuid = update.Uuid;
+                session.System.IsUefi = true;
+
+                // iPXE 단계에서 모델명이 수집되면 배포 예정 이미지도 미리 매칭하여 표시
+                if (!string.IsNullOrWhiteSpace(session.System.ModelName) && session.MatchedImage == null)
+                {
+                    session.MatchedImage = ImageMatcher.MatchRule(session, _configManager.ImageCatalog);
+                    string rawPattern = session.MatchedImage?.TargetImage?.ImageFileName ?? "*.wim";
+                    string mDir = _configManager.ServerConfig.MasterImageDir ?? @"C:\images";
+                    var resolved = WimScanner.ResolveLatestImageFile(mDir, rawPattern, session.System.ModelName);
+                    session.ResolvedImageFileName = resolved?.FileName;
+                }
+
+                session.Progress = new ProgressInfo
+                {
+                    Percent = update.Percent,
+                    Step = update.StepMessage,
+                    SpeedMbps = update.SpeedMbps,
+                    ElapsedSeconds = (int)Math.Max(0, (DateTime.Now - session.ConnectedAt).TotalSeconds)
+                };
+
+                RefreshGridRows();
+                UpdateMetrics();
+            }));
+        }
+
+        private void MergePxePreSessionsOnUiThread(ClientSession session)
+        {
+            string normMac = NetworkUtility.NormalizeMac(session.Network.PrimaryMac);
+            var prePxeSessions = _sessions.Values
+                .Where(s => s.Status == "PXE_BOOT" &&
+                            ((!string.IsNullOrEmpty(normMac) && string.Equals(NetworkUtility.NormalizeMac(s.Network.PrimaryMac), normMac, StringComparison.OrdinalIgnoreCase)) ||
+                             (!string.IsNullOrEmpty(session.IpAddress) && string.Equals(s.IpAddress, session.IpAddress, StringComparison.OrdinalIgnoreCase))))
+                .ToList();
+
+            foreach (var pre in prePxeSessions)
+            {
+                if (pre.IsCustomImageSelected && !string.IsNullOrEmpty(pre.CustomImageFileName))
+                {
+                    session.SetCustomImage(pre.CustomImageFileName, pre.CustomImageIndex ?? 1);
+                }
+                _sessions.Remove(pre.SessionId);
+            }
+        }
+
         private void OnClientRegistered(ClientSession session)
         {
             this.BeginInvoke(new Action(() =>
             {
                 // 정책 및 이미지 자동 매칭
+                MergePxePreSessionsOnUiThread(session);
                 session.MatchedPolicy = ImageMatcher.MatchPolicy(session, _configManager.PartitionPolicies);
                 session.MatchedImage = ImageMatcher.MatchRule(session, _configManager.ImageCatalog);
 
@@ -1046,6 +1196,11 @@ namespace MultiDeployOS.Master.Forms
                 };
                 _configManager.AddHistoryItem(hist);
 
+                if (session.Status == "SUCCESS")
+                {
+                    _pxeCoordinator.MarkMacDeployCompleted(session.Network.PrimaryMac);
+                }
+
                 RefreshGridRows();
                 RefreshHistoryGrid();
                 UpdateMetrics();
@@ -1082,6 +1237,7 @@ namespace MultiDeployOS.Master.Forms
             var policy = session.MatchedPolicy ?? _configManager.PartitionPolicies.FirstOrDefault() ?? new PartitionPolicy();
             var rule = session.MatchedImage ?? _configManager.ImageCatalog.FirstOrDefault() ?? new ImageRule();
 
+            _pxeCoordinator.ClearMacDeployCompleted(session.Network.PrimaryMac);
             bool ok = _tcpService.ApproveClient(session, policy, rule, _configManager.ServerConfig);
             if (!ok)
             {
@@ -1172,6 +1328,7 @@ namespace MultiDeployOS.Master.Forms
             var filtered = _sessions.Values.Where(s =>
             {
                 // 상태 필터
+                if (statusFilter == "PXE 부팅 중" && s.Status != "PXE_BOOT") return false;
                 if (statusFilter == "승인 대기" && s.Status != "READY") return false;
                 if (statusFilter == "배포 진행 중" && s.Status != "IMAGING") return false;
                 if (statusFilter == "배포 성공" && s.Status != "SUCCESS") return false;
@@ -1227,6 +1384,7 @@ namespace MultiDeployOS.Master.Forms
 
                 string statusText = s.Status switch
                 {
+                    "PXE_BOOT" => $"PXE 부팅 ({(int)(s.Progress?.Percent ?? 0)}%)",
                     "READY" => "승인 대기",
                     "IMAGING" => "작업 중 (" + (int)(s.Progress?.Percent ?? 0) + "%)",
                     "SUCCESS" => "완료 (성공)",
@@ -1235,18 +1393,19 @@ namespace MultiDeployOS.Master.Forms
                 };
 
                 string disksText = string.Join(", ", s.Disks.Select(d => $"[{d.DiskIndex}] {(int)d.SizeGb}GB"));
-                if (string.IsNullOrEmpty(disksText)) disksText = "디스크 미감지";
+                if (string.IsNullOrEmpty(disksText)) disksText = s.Status == "PXE_BOOT" ? "WinPE 부팅 후 스캔" : "디스크 미감지";
 
-                string progressText = s.Status == "IMAGING"
+                string progressText = (s.Status == "IMAGING" || s.Status == "PXE_BOOT")
                     ? $"[{(int)(s.Progress?.Percent ?? 0)}%] {s.Progress?.Step}"
                     : (s.Status == "SUCCESS" ? "정상 완료" : (s.Status == "FAILED" ? ("오류: " + (s.Result?.ErrorMessage ?? "배포 실패")) : "대기 중"));
 
-                string durationText = s.Status == "IMAGING"
+                string durationText = (s.Status == "IMAGING" || s.Status == "PXE_BOOT")
                     ? $"{s.Progress?.ElapsedSeconds ?? 0}초"
                     : (s.Result != null ? $"{s.Result.TotalDurationSeconds}초" : "-");
 
                 string actionButtonText = s.Status switch
                 {
+                    "PXE_BOOT" => "부팅 중...",
                     "READY" => "배포 승인",
                     "IMAGING" => "배포 중...",
                     "SUCCESS" => "완료됨",
@@ -1256,6 +1415,7 @@ namespace MultiDeployOS.Master.Forms
 
                 Color statusColor = s.Status switch
                 {
+                    "PXE_BOOT" => Color.FromArgb(56, 189, 248),
                     "READY" => Color.FromArgb(253, 224, 71),
                     "IMAGING" => Color.FromArgb(192, 132, 252),
                     "SUCCESS" => Color.FromArgb(74, 222, 128),
@@ -1372,7 +1532,7 @@ namespace MultiDeployOS.Master.Forms
         {
             int total = _sessions.Count;
             int pending = _sessions.Values.Count(s => s.Status == "READY");
-            int active = _sessions.Values.Count(s => s.Status == "IMAGING");
+            int active = _sessions.Values.Count(s => s.Status == "IMAGING" || s.Status == "PXE_BOOT");
             int success = _sessions.Values.Count(s => s.Status == "SUCCESS") + _configManager.History.Count(h => h.Status == "SUCCESS");
             int failed = _sessions.Values.Count(s => s.Status == "FAILED") + _configManager.History.Count(h => h.Status == "FAILED");
 
@@ -1579,6 +1739,7 @@ namespace MultiDeployOS.Master.Forms
             _columnSaveDebounceTimer = null;
             _udpService.Stop();
             _tcpService.Stop();
+            _pxeCoordinator?.Dispose();
             if (!_isApplyingUiSettings && this.WindowState != FormWindowState.Minimized)
             {
                 SaveCurrentTableConfig();

@@ -4,6 +4,55 @@ using System.Text.Json.Serialization;
 
 namespace MultiDeployOS.Master.Models
 {
+    public class PxeServerConfig
+    {
+        [JsonPropertyName("enabled")]
+        public bool Enabled { get; set; } = false;
+
+        /// <summary>
+        /// STANDALONE: 독립 작업대용 자체 DHCP + PXE 서버 (기본값)
+        /// PROXY: 기존 공유기/DHCP 서버와 병행하는 ProxyDHCP 모드
+        /// </summary>
+        [JsonPropertyName("dhcpMode")]
+        public string DhcpMode { get; set; } = "STANDALONE";
+
+        [JsonPropertyName("bindIpAddress")]
+        public string BindIpAddress { get; set; } = "";
+
+        [JsonPropertyName("subnetMask")]
+        public string SubnetMask { get; set; } = "255.255.255.0";
+
+        [JsonPropertyName("gatewayIp")]
+        public string GatewayIp { get; set; } = "";
+
+        [JsonPropertyName("dnsIp")]
+        public string DnsIp { get; set; } = "";
+
+        [JsonPropertyName("poolStartIp")]
+        public string PoolStartIp { get; set; } = "192.168.77.100";
+
+        [JsonPropertyName("poolEndIp")]
+        public string PoolEndIp { get; set; } = "192.168.77.250";
+
+        [JsonPropertyName("leaseTimeSeconds")]
+        public int LeaseTimeSeconds { get; set; } = 28800;
+
+        [JsonPropertyName("httpBootPort")]
+        public int HttpBootPort { get; set; } = 39202;
+
+        [JsonPropertyName("bootWimPath")]
+        public string BootWimPath { get; set; } = "";
+
+        [JsonPropertyName("cacheBootWimInRam")]
+        public bool CacheBootWimInRam { get; set; } = true;
+
+        [JsonPropertyName("preventBootLoop")]
+        public bool PreventBootLoop { get; set; } = true;
+
+        [JsonPropertyName("bootLoopGuardMinutes")]
+        public int BootLoopGuardMinutes { get; set; } = 30;
+    }
+
     public class ServerConfig
     {
         [JsonPropertyName("masterImageDir")]
@@ -17,6 +66,9 @@ namespace MultiDeployOS.Master.Models
 
         [JsonPropertyName("lastScannedAt")]
         public string LastScannedAt { get; set; } = DateTime.UtcNow.ToString("o");
+
+        [JsonPropertyName("pxe")]
+        public PxeServerConfig Pxe { get; set; } = new();
     }
 
     public class TableSortConfig

@@ -55,6 +55,10 @@ dism /Unmount-Wim /MountDir:"C:\mount" /Commit
 - **기술 스택**: C# (.NET 8.0 Windows Desktop App, WinForms) - **Node.js, Electron, 웹 브라우저 엔진(Chromium), HTTP 웹서버 종속성 0%**
 - **실행 바이너리**: [**`bin\MultiDeployMaster.exe`**](file:///d:/Code/multi-pc-imaging/bin/MultiDeployMaster.exe) (외부 종속성 없는 단일 실행파일)
 - **핵심 모듈**:
+  - `PxeServerCoordinator` (`DhcpPxeService` + `TftpServerService` + `HttpBootServerService` + `PxeBootAssetManager`):
+    - **독립 작업대 Standalone DHCP 서버 내장**: 별도 공유기 없이 스위칭 허브만으로 IP 자동 임대(Sticky IP) 및 ProxyDHCP 병행 모드 지원
+    - **UEFI 64-bit 전용 iPXE + HTTP(`wimboot`) 초고속 부팅**: TFTP 윈도우 전송으로 `snponly.efi` 로드 후 TCP 39202 HTTP 인메모리(RAM) 캐시 스트리밍으로 다중 PC 동시 초고속 WinPE 부팅 지원
+    - **전원 ON 즉시 하드웨어 관제 & 무한 재부팅 방지(Boot Loop Guard)**: iPXE 단계에서 SMBIOS(제조사/모델명/시리얼)를 선제 수집해 그리드에 실시간 부팅 진행률을 표시하고, 배포 완료(`SUCCESS`) PC 재부팅 시 자동으로 내장 SSD 부팅 유도
   - `UdpDiscoveryService`: UDP 39200 브로드캐스트 자동 감지 및 WinPE 에이전트에 마스터 IP 전송
   - `TcpServerService`: TCP 39201 포트 기반 WinPE 에이전트 다중 비동기 세션 제어
   - `SmartPartitionEngine`: 스마트 지능형 동적 파티션 자동 생성 엔진 (GPT 포맷, 512GB 초과/이하 조건 분기, 2개 이상 다중 디스크 최소 용량 OS 배치 및 Data1/Data2 자동 라벨링)
@@ -83,6 +87,13 @@ dism /Unmount-Wim /MountDir:"C:\mount" /Commit
 dotnet publish MasterApp\MasterApp.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o bin
 ```
 - 빌드 결과물: `bin\MultiDeployMaster.exe` (.NET 런타임이 자체 내장된 초고속 단일 포터블 실행파일)
+
+### 3. 내장 독립 작업대 DHCP & UEFI 64-bit 초고속 PXE 부팅 서버 설정
+1. 마스터 앱 상단 헤더의 **[🌐 PXE 서버: OFF]** 버튼을 클릭합니다.
+2. **바인딩 랜카드(NIC)**에서 작업대 스위칭 허브와 연결된 유선 랜카드(예: 고정 IP `192.168.77.1`)를 선택하고 **[⚡ 대역 자동맞춤]**을 확인합니다.
+3. **WinPE `boot.wim` 경로**를 선택합니다. (순정 `boot.wim`인 경우 우측 **[🔧 boot.wim 에이전트 자동 주입]** 버튼으로 1클릭 자동 패치 가능)
+4. **[▶ PXE / DHCP 서버 시작]**을 누르면 외부 공유기나 서드파티 툴 없이 즉시 다중 PC 초고속 네트워크 부팅이 시작됩니다.
+   - *타깃 PC BIOS 설정*: **UEFI 부팅 활성화** 및 **Secure Boot(보안 부팅) Disabled** 필요
 
 ---
 

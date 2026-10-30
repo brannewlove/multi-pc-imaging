@@ -2,5 +2,21 @@
   "masterImageDir": "C:\\images",
   "networkSharePath": "\\\\127.0.0.1\\images",
   "clientAccessMethod": "LOCAL_OR_SHARE",
-  "lastScannedAt": "2026-10-26T00:00:00.000Z"
+  "lastScannedAt": "2026-10-30T00:00:00.000Z",
+  "pxe": {
+    "enabled": false,
+    "dhcpMode": "STANDALONE",
+    "bindIpAddress": "",
+    "subnetMask": "255.255.255.0",
+    "gatewayIp": "",
+    "dnsIp": "",
+    "poolStartIp": "192.168.77.100",
+    "poolEndIp": "192.168.77.250",
+    "leaseTimeSeconds": 28800,
+    "httpBootPort": 39202,
+    "bootWimPath": "",
+    "cacheBootWimInRam": true,
+    "preventBootLoop": true,
+    "bootLoopGuardMinutes": 30
+  }
 }

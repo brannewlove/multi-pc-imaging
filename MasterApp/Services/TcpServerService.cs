@@ -243,7 +243,7 @@ namespace MultiDeployOS.Master.Services
                             imageLocalPath = localPath,
                             imageNetworkPath = networkPath,
                             sourceType = serverConfig.ClientAccessMethod ?? "LOCAL_OR_SHARE",
-                            sourceUrl = $"http://{serverLanIp}:39202/images/{Uri.EscapeDataString(targetFileName)}",
+                            sourceUrl = $"http://{serverLanIp}:{(serverConfig.Pxe?.HttpBootPort > 0 ? serverConfig.Pxe.HttpBootPort : 39202)}/images/{Uri.EscapeDataString(targetFileName)}",
                             targetDriveLetter = "W:",
                             bootDriveLetter = "S:"
                         },
