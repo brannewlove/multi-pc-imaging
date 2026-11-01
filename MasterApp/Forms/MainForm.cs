@@ -43,6 +43,8 @@ namespace MultiDeployOS.Master.Forms
         private ContextMenuStrip _rowContextMenu;
         private ContextMenuStrip _historyContextMenu;
         private int _contextClickedColumnIndex = -1;
+        private DataGridView? _contextTargetGrid;
+        private bool _hasHistoryGridBeenShown = false;
         private string _sortColumn = "";
         private SortOrder _sortOrder = SortOrder.None;
 
@@ -552,7 +554,25 @@ namespace MultiDeployOS.Master.Forms
                 _btnTabLive.Font = new Font("맑은 고딕", 9.5f);
 
                 _gridClients.Visible = false;
-                _gridHistory.Visible = true;
+                if (!_hasHistoryGridBeenShown)
+                {
+                    bool prevApplying = _isApplyingUiSettings;
+                    _isApplyingUiSettings = true;
+                    try
+                    {
+                        _gridHistory.Visible = true;
+                        _hasHistoryGridBeenShown = true;
+                        ApplyHistoryTableConfig();
+                    }
+                    finally
+                    {
+                        _isApplyingUiSettings = prevApplying;
+                    }
+                }
+                else
+                {
+                    _gridHistory.Visible = true;
+                }
                 _gridHistory.BringToFront();
                 if (_btnDeleteHistory != null) _btnDeleteHistory.Visible = true;
                 RefreshHistoryGrid();
@@ -695,6 +715,7 @@ namespace MultiDeployOS.Master.Forms
                     var hit = _gridClients.HitTest(e.X, e.Y);
                     if (hit.Type == DataGridViewHitTestType.ColumnHeader)
                     {
+                        _contextTargetGrid = _gridClients;
                         _contextClickedColumnIndex = hit.ColumnIndex;
                         _headerContextMenu.Show(_gridClients, e.Location);
                     }
@@ -743,6 +764,9 @@ namespace MultiDeployOS.Master.Forms
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
                 MultiSelect = true,
                 ReadOnly = true,
+                AllowUserToDeleteRows = false,
+                AllowUserToOrderColumns = true, // 배포 완료 이력도 컬럼 순서 드래그 변경 지원
+                AutoGenerateColumns = false,
                 RowTemplate = { Height = 36 }
             };
 
@@ -778,6 +802,16 @@ namespace MultiDeployOS.Master.Forms
             _gridHistory.Columns["duration"].Width = 90;
             _gridHistory.Columns["error"].Width = 200;
 
+            // 배포 완료 이력 테이블 헤더 너비 및 순서 변경 자동 저장 이벤트 바인딩
+            _gridHistory.ColumnWidthChanged += (s, e) =>
+            {
+                if (_gridHistory.Visible) ScheduleSaveTableConfig();
+            };
+            _gridHistory.ColumnDisplayIndexChanged += (s, e) =>
+            {
+                if (_gridHistory.Visible) ScheduleSaveTableConfig();
+            };
+
             // 이력 테이블 우클릭 메뉴
             _historyContextMenu = new ContextMenuStrip();
             var itemDelHist = _historyContextMenu.Items.Add("🗑️ 선택한 이력 삭제");
@@ -792,6 +826,13 @@ namespace MultiDeployOS.Master.Forms
                 if (e.Button == MouseButtons.Right)
                 {
                     var hit = _gridHistory.HitTest(e.X, e.Y);
+                    if (hit.Type == DataGridViewHitTestType.ColumnHeader)
+                    {
+                        _contextTargetGrid = _gridHistory;
+                        _contextClickedColumnIndex = hit.ColumnIndex;
+                        _headerContextMenu.Show(_gridHistory, e.Location);
+                        return;
+                    }
                     if (hit.RowIndex >= 0 && hit.RowIndex < _gridHistory.Rows.Count)
                     {
                         if (!_gridHistory.Rows[hit.RowIndex].Selected)
@@ -860,16 +901,11 @@ namespace MultiDeployOS.Master.Forms
                     }
                 }
 
-                // 2. 숨김 복원
-                if (tc.Hidden != null)
+                // 2. 숨김/표시 상태 복원 (초기화 시에도 숨겨진 열이 정상 복원되도록 전체 동기화)
+                var liveHidden = new HashSet<string>(tc.Hidden ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+                foreach (DataGridViewColumn col in _gridClients.Columns)
                 {
-                    foreach (var hiddenCol in tc.Hidden)
-                    {
-                        if (_gridClients.Columns.Contains(hiddenCol))
-                        {
-                            _gridClients.Columns[hiddenCol].Visible = false;
-                        }
-                    }
+                    col.Visible = !liveHidden.Contains(col.Name);
                 }
 
                 // 3. 컬럼 표시 순서 복원
@@ -888,6 +924,54 @@ namespace MultiDeployOS.Master.Forms
             finally
             {
                 _gridClients.ResumeLayout();
+                ApplyHistoryTableConfig();
+                _isApplyingUiSettings = prev;
+            }
+        }
+
+        private void ApplyHistoryTableConfig()
+        {
+            if (_gridHistory == null) return;
+            var htc = _configManager.UiSettings.HistoryTableConfig ??= new HistoryTableConfig();
+
+            bool prev = _isApplyingUiSettings;
+            _isApplyingUiSettings = true;
+            try
+            {
+                _gridHistory.SuspendLayout();
+
+                if (htc.Widths != null)
+                {
+                    foreach (var kvp in htc.Widths)
+                    {
+                        if (_gridHistory.Columns.Contains(kvp.Key) && kvp.Value > 20)
+                        {
+                            _gridHistory.Columns[kvp.Key].Width = kvp.Value;
+                        }
+                    }
+                }
+
+                var histHidden = new HashSet<string>(htc.Hidden ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+                foreach (DataGridViewColumn col in _gridHistory.Columns)
+                {
+                    col.Visible = !histHidden.Contains(col.Name);
+                }
+
+                if (htc.Order != null && htc.Order.Count > 0)
+                {
+                    int displayIndex = 0;
+                    foreach (var colName in htc.Order)
+                    {
+                        if (_gridHistory.Columns.Contains(colName))
+                        {
+                            _gridHistory.Columns[colName].DisplayIndex = Math.Min(displayIndex++, _gridHistory.Columns.Count - 1);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                _gridHistory.ResumeLayout();
                 _isApplyingUiSettings = prev;
             }
         }
@@ -924,21 +1008,53 @@ namespace MultiDeployOS.Master.Forms
                     tc.Widths[c.Name] = c.Width;
                 }
             }
+            if (_hasHistoryGridBeenShown && _gridHistory != null)
+            {
+                var htc = _configManager.UiSettings.HistoryTableConfig ??= new HistoryTableConfig();
+                htc.Hidden = _gridHistory.Columns.Cast<DataGridViewColumn>().Where(c => !c.Visible).Select(c => c.Name).ToList();
+                htc.Order = _gridHistory.Columns.Cast<DataGridViewColumn>().OrderBy(c => c.DisplayIndex).Select(c => c.Name).ToList();
+                foreach (DataGridViewColumn c in _gridHistory.Columns)
+                {
+                    if (c.Width > 20)
+                    {
+                        htc.Widths[c.Name] = c.Width;
+                    }
+                }
+            }
+
             _configManager.SaveUiSettings();
+        }
+
+        private DataGridView GetTargetGrid(bool preferContext = false)
+        {
+            if (preferContext && _contextTargetGrid != null)
+            {
+                return _contextTargetGrid;
+            }
+            return (_gridHistory != null && _gridHistory.Visible) ? _gridHistory : _gridClients;
         }
 
         private void HideClickedColumn()
         {
-            if (_contextClickedColumnIndex >= 0 && _contextClickedColumnIndex < _gridClients.Columns.Count)
+            var grid = GetTargetGrid(preferContext: true);
+            if (_contextClickedColumnIndex >= 0 && _contextClickedColumnIndex < grid.Columns.Count)
             {
-                _gridClients.Columns[_contextClickedColumnIndex].Visible = false;
+                if (grid.Columns.Cast<DataGridViewColumn>().Count(c => c.Visible) <= 1)
+                {
+                    MessageBox.Show("최소 1개 이상의 열은 표시되어야 합니다.", "알림", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                if (ReferenceEquals(grid, _gridHistory)) _hasHistoryGridBeenShown = true;
+                grid.Columns[_contextClickedColumnIndex].Visible = false;
                 SaveCurrentTableConfig();
             }
         }
 
         private void ShowAllColumns()
         {
-            foreach (DataGridViewColumn c in _gridClients.Columns)
+            var grid = GetTargetGrid(preferContext: true);
+            if (ReferenceEquals(grid, _gridHistory)) _hasHistoryGridBeenShown = true;
+            foreach (DataGridViewColumn c in grid.Columns)
             {
                 c.Visible = true;
             }
@@ -947,17 +1063,30 @@ namespace MultiDeployOS.Master.Forms
 
         private void ResetColumnConfig()
         {
-            _configManager.UiSettings.TableConfig = new TableConfig();
-            ApplySavedUiSettings();
+            var grid = GetTargetGrid(preferContext: true);
+            if (ReferenceEquals(grid, _gridHistory))
+            {
+                _configManager.UiSettings.HistoryTableConfig = new HistoryTableConfig();
+                _hasHistoryGridBeenShown = true;
+                ApplyHistoryTableConfig();
+            }
+            else
+            {
+                _configManager.UiSettings.TableConfig = new TableConfig();
+                ApplySavedUiSettings();
+            }
             SaveCurrentTableConfig();
         }
 
         private void ShowColumnSettingsDialog()
         {
+            var grid = GetTargetGrid(preferContext: false);
+            bool isHistory = ReferenceEquals(grid, _gridHistory);
+
             using var dlg = new Form
             {
-                Text = "테이블 열 표시 / 숨김 설정",
-                Size = new Size(350, 420),
+                Text = isHistory ? "배포 완료 이력 열 표시 / 숨김 설정" : "실시간 현황 열 표시 / 숨김 설정",
+                Size = new Size(360, 420),
                 StartPosition = FormStartPosition.CenterParent,
                 BackColor = Color.FromArgb(24, 28, 36),
                 ForeColor = Color.White
@@ -971,7 +1100,7 @@ namespace MultiDeployOS.Master.Forms
                 CheckOnClick = true
             };
 
-            foreach (DataGridViewColumn col in _gridClients.Columns.Cast<DataGridViewColumn>().OrderBy(c => c.DisplayIndex))
+            foreach (DataGridViewColumn col in grid.Columns.Cast<DataGridViewColumn>().OrderBy(c => c.DisplayIndex))
             {
                 chkList.Items.Add(new ColumnListItem { Name = col.Name, Text = col.HeaderText }, col.Visible);
             }
@@ -980,10 +1109,16 @@ namespace MultiDeployOS.Master.Forms
             var btnOk = new Button { Text = "적용하기", Dock = DockStyle.Right, Width = 90, BackColor = Color.FromArgb(14, 165, 233), ForeColor = Color.White, FlatStyle = FlatStyle.Flat };
             btnOk.Click += (s, e) =>
             {
+                if (chkList.CheckedItems.Count == 0)
+                {
+                    MessageBox.Show("최소 1개 이상의 열은 선택되어야 합니다.", "알림", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                if (isHistory) _hasHistoryGridBeenShown = true;
                 for (int i = 0; i < chkList.Items.Count; i++)
                 {
                     var item = (ColumnListItem)chkList.Items[i];
-                    _gridClients.Columns[item.Name].Visible = chkList.GetItemChecked(i);
+                    grid.Columns[item.Name].Visible = chkList.GetItemChecked(i);
                 }
                 SaveCurrentTableConfig();
                 dlg.Close();

@@ -16,7 +16,7 @@
     ],
     "hidden": [],
     "widths": {
-      "status": 100,
+      "status": 136,
       "ip": 120,
       "model": 160,
       "serial": 130,
@@ -27,6 +27,32 @@
       "progress": 200,
       "duration": 90,
       "action": 120
+    },
+    "sort": null
+  },
+  "historyTableConfig": {
+    "order": [
+      "time",
+      "status",
+      "model",
+      "serial",
+      "mac",
+      "policy",
+      "image",
+      "duration",
+      "error"
+    ],
+    "hidden": [],
+    "widths": {
+      "time": 192,
+      "status": 90,
+      "model": 261,
+      "serial": 252,
+      "mac": 130,
+      "policy": 305,
+      "image": 253,
+      "duration": 90,
+      "error": 200
     },
     "sort": null
   }

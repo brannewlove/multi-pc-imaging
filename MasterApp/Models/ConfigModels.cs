@@ -111,6 +111,35 @@ namespace MultiDeployOS.Master.Models
         public TableSortConfig? Sort { get; set; }
     }
 
+    public class HistoryTableConfig
+    {
+        [JsonPropertyName("order")]
+        public List<string> Order { get; set; } = new()
+        {
+            "time", "status", "model", "serial", "mac", "policy", "image", "duration", "error"
+        };
+
+        [JsonPropertyName("hidden")]
+        public List<string> Hidden { get; set; } = new();
+
+        [JsonPropertyName("widths")]
+        public Dictionary<string, int> Widths { get; set; } = new()
+        {
+            ["time"] = 140,
+            ["status"] = 90,
+            ["model"] = 160,
+            ["serial"] = 130,
+            ["mac"] = 130,
+            ["policy"] = 160,
+            ["image"] = 180,
+            ["duration"] = 90,
+            ["error"] = 200
+        };
+
+        [JsonPropertyName("sort")]
+        public TableSortConfig? Sort { get; set; }
+    }
+
     public class UiSettings
     {
         [JsonPropertyName("viewMode")]
@@ -118,6 +147,9 @@ namespace MultiDeployOS.Master.Models
 
         [JsonPropertyName("tableConfig")]
         public TableConfig TableConfig { get; set; } = new();
+
+        [JsonPropertyName("historyTableConfig")]
+        public HistoryTableConfig HistoryTableConfig { get; set; } = new();
     }
 
     public class DeployHistoryItem

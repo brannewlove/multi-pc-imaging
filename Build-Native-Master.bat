@@ -40,9 +40,11 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: 기본 설정 파일 동기화 보장
+:: 기본 설정 파일 동기화 보장 (기존 사용자 설정 보존)
 if not exist "bin\config" mkdir "bin\config"
-copy /y "MasterApp\config\*.json" "bin\config\" >nul 2>nul
+for %%F in ("MasterApp\config\*.json") do (
+    if not exist "bin\config\%%~nxF" copy /y "%%F" "bin\config\" >nul 2>nul
+)
 
 :: PXE UEFI 64-bit iPXE + wimboot 부트 에셋 동기화
 if not exist "bin\pxe" mkdir "bin\pxe"
