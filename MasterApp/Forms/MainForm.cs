@@ -113,7 +113,9 @@ namespace MultiDeployOS.Master.Forms
             int targetW = Math.Min(1400, Math.Max(1024, workArea.Width - 40));
             int targetH = Math.Min(860, Math.Max(600, workArea.Height - 60));
             this.Size = new Size(targetW, targetH);
-            this.MinimumSize = new Size(960, 560);
+            this.MinimumSize = new Size(800, 480);
+            this.AutoScroll = true;
+            this.AutoScrollMinSize = new Size(1140, 580);
             this.StartPosition = FormStartPosition.CenterScreen;
 
             // 앱 아이콘 적용
@@ -138,7 +140,8 @@ namespace MultiDeployOS.Master.Forms
             var pnlTopContainer = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 196,
+                Height = 206,
+                MinimumSize = new Size(1120, 206),
                 BackColor = Color.FromArgb(15, 23, 42)
             };
 
@@ -146,9 +149,9 @@ namespace MultiDeployOS.Master.Forms
             var pnlHeader = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 58,
+                Height = 68,
                 BackColor = Color.FromArgb(15, 23, 42),
-                Padding = new Padding(16, 8, 16, 8)
+                Padding = new Padding(16, 6, 16, 6)
             };
 
             var pnlHeaderLeft = new FlowLayoutPanel
@@ -177,10 +180,10 @@ namespace MultiDeployOS.Master.Forms
                 Margin = new Padding(0, 10, 0, 0)
             };
             pnlHeaderLeft.FlowDirection = FlowDirection.TopDown;
-            pnlHeaderLeft.Padding = new Padding(0, 0, 0, 0);
-            lblLogo.Margin = new Padding(0, 0, 0, 1);
-            _lblServerStatus.Font = new Font("맑은 고딕", 8.25f, FontStyle.Bold);
-            _lblServerStatus.Margin = new Padding(2, 0, 0, 0);
+            pnlHeaderLeft.Padding = new Padding(0, 2, 0, 0);
+            lblLogo.Margin = new Padding(0, 0, 0, 2);
+            _lblServerStatus.Font = new Font("맑은 고딕", 8.5f, FontStyle.Bold);
+            _lblServerStatus.Margin = new Padding(2, 2, 0, 0);
             pnlHeaderLeft.Controls.Add(lblLogo);
             pnlHeaderLeft.Controls.Add(_lblServerStatus);
             pnlHeader.Controls.Add(pnlHeaderLeft);
@@ -192,7 +195,7 @@ namespace MultiDeployOS.Master.Forms
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 WrapContents = false, // 수직 줄바꿈 방지
                 FlowDirection = FlowDirection.LeftToRight,
-                Padding = new Padding(0, 6, 0, 0)
+                Padding = new Padding(0, 8, 0, 0)
             };
 
             _btnAutoApproveToggle = CreateButton("⚪ 자동 승인: OFF", Color.FromArgb(71, 85, 105));
@@ -389,6 +392,7 @@ namespace MultiDeployOS.Master.Forms
             _pnlContent = new Panel
             {
                 Dock = DockStyle.Fill,
+                MinimumSize = new Size(1120, 260),
                 BackColor = Color.FromArgb(15, 23, 42)
             };
 
@@ -585,21 +589,21 @@ namespace MultiDeployOS.Master.Forms
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(15, 23, 42),
-                Margin = new Padding(5, 3, 5, 3),
-                Padding = new Padding(0, 4, 0, 4)
+                Margin = new Padding(4, 2, 4, 2),
+                Padding = new Padding(0, 2, 0, 2)
             };
             var lblTitle = new Label
             {
                 Text = title,
                 Dock = DockStyle.Top,
                 Height = 22,
-                Font = new Font("맑은 고딕", 9f),
+                Font = new Font("맑은 고딕", 8.5f),
                 ForeColor = Color.FromArgb(148, 163, 184),
                 TextAlign = ContentAlignment.MiddleCenter
             };
             valLabel.Text = "0";
             valLabel.Dock = DockStyle.Fill;
-            valLabel.Font = new Font("맑은 고딕", 17f, FontStyle.Bold);
+            valLabel.Font = new Font("맑은 고딕", 15.5f, FontStyle.Bold);
             valLabel.ForeColor = valColor;
             valLabel.TextAlign = ContentAlignment.MiddleCenter;
 
@@ -620,7 +624,8 @@ namespace MultiDeployOS.Master.Forms
                 Cursor = Cursors.Hand,
                 AutoSize = true,
                 Height = 32,
-                Margin = new Padding(0, 0, 6, 0)
+                Padding = new Padding(8, 0, 8, 0),
+                Margin = new Padding(0, 0, 4, 0)
             };
         }
 
@@ -645,8 +650,9 @@ namespace MultiDeployOS.Master.Forms
 
             _gridClients.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(30, 41, 59);
             _gridClients.ColumnHeadersDefaultCellStyle.ForeColor = Color.FromArgb(226, 232, 240);
-            _gridClients.ColumnHeadersDefaultCellStyle.Font = new Font("맑은 고딕", 9.5f, FontStyle.Bold);
-            _gridClients.ColumnHeadersHeight = 40;
+            _gridClients.ColumnHeadersDefaultCellStyle.Font = new Font("맑은 고딕", 9f, FontStyle.Bold);
+            _gridClients.ColumnHeadersHeight = 38;
+            _gridClients.ScrollBars = ScrollBars.Both;
             _gridClients.EnableHeadersVisualStyles = false;
 
             _gridClients.DefaultCellStyle.BackColor = Color.FromArgb(15, 23, 42);
@@ -772,8 +778,9 @@ namespace MultiDeployOS.Master.Forms
 
             _gridHistory.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(30, 41, 59);
             _gridHistory.ColumnHeadersDefaultCellStyle.ForeColor = Color.FromArgb(226, 232, 240);
-            _gridHistory.ColumnHeadersDefaultCellStyle.Font = new Font("맑은 고딕", 9.5f, FontStyle.Bold);
-            _gridHistory.ColumnHeadersHeight = 40;
+            _gridHistory.ColumnHeadersDefaultCellStyle.Font = new Font("맑은 고딕", 9f, FontStyle.Bold);
+            _gridHistory.ColumnHeadersHeight = 38;
+            _gridHistory.ScrollBars = ScrollBars.Both;
             _gridHistory.EnableHeadersVisualStyles = false;
 
             _gridHistory.DefaultCellStyle.BackColor = Color.FromArgb(15, 23, 42);
