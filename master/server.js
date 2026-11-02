@@ -1,4 +1,4 @@
-const http = require('http');
+﻿const http = require('http');
 const net = require('net');
 const dgram = require('dgram');
 const fs = require('fs');
@@ -69,7 +69,7 @@ function resolveEffectiveImageDir(configuredDir) {
     }
 }
 
-// 1. 설정 로드 및 저장
+// 1. 정책이 스마트 동적 정책이거나 지능형 모드인 경우
 function loadConfigs() {
     try {
         if (fs.existsSync(PATH_SERVER_CONFIG)) {
@@ -224,6 +224,24 @@ function scanMasterImageFolder(dirPath) {
 }
 
 // 3. 파티션 및 이미지 선택 규칙 매칭 엔진
+function calculatePolicyScore(policy) {
+    let score = 0;
+    const cond = policy.conditions;
+    if (!cond) return score;
+
+    if (cond.modelPattern && cond.modelPattern !== '*') score += 1000;
+    if (cond.diskCountMin && cond.diskCountMin >= 2) score += 100;
+    else if (cond.diskCountMax && cond.diskCountMax < 99) score += 50;
+
+    if (cond.targetDiskCriteria && cond.targetDiskCriteria !== 'SMART_AUTO' && cond.targetDiskCriteria !== 'INDEX_0') {
+        score += 30;
+    }
+    if (cond.targetDiskIndex === 1) score += 20;
+    if (cond.minCapacityGb > 0 || (cond.maxCapacityGb && cond.maxCapacityGb < 99999)) score += 10;
+
+    return score;
+}
+
 function matchPartitionPolicy(client) {
     if (!client.disks || client.disks.length === 0) {
         return partitionPolicies[0] || null;
@@ -233,7 +251,8 @@ function matchPartitionPolicy(client) {
     const targetDisk = client.disks[0]; // 기본 타깃 디스크 0
     const targetCapacityGb = targetDisk.sizeGb || (targetDisk.sizeBytes ? (targetDisk.sizeBytes / (1024 * 1024 * 1024)) : 0);
 
-    for (const policy of partitionPolicies) {
+    const candidatePolicies = [...partitionPolicies].sort((a, b) => calculatePolicyScore(b) - calculatePolicyScore(a));
+    for (const policy of candidatePolicies) {
         const cond = policy.conditions;
         if (!cond) continue;
 
@@ -276,7 +295,7 @@ function matchImageCatalog(client) {
 
         const cond = rule.conditions || {};
 
-        // 1. 제조사 매칭
+        // 1. 정책이 스마트 동적 정책이거나 지능형 모드인 경우
         if (cond.manufacturer && cond.manufacturer !== '*') {
             const parts = cond.manufacturer.split('|').map(s => s.trim());
             const matched = parts.some(p => {
@@ -327,7 +346,76 @@ function reMatchConnectedClients() {
 }
 
 // 스마트 지능형 동적 파티션 스크립트 생성 엔진 (사용자 지정 조건부 분할)
-function generateDynamicSmartPartitionCommands(clientDisks = []) {
+function getDiskGb(d) {
+    if (d.sizeGb) return d.sizeGb;
+    if (d.sizeBytes) return d.sizeBytes / (1024 * 1024 * 1024);
+    return 0;
+}
+
+function determineTargetOsDiskIndex(policy, clientDisks = [], defaultIndex = 0) {
+    if (!clientDisks || clientDisks.length === 0) {
+        return policy?.conditions?.targetDiskIndex ?? defaultIndex;
+    }
+    if (clientDisks.length === 1) {
+        return clientDisks[0].diskIndex ?? 0;
+    }
+
+    const criteria = (policy?.conditions?.targetDiskCriteria || 'SMART_AUTO').trim().toUpperCase();
+    const preferredIndex = policy?.conditions?.targetDiskIndex ?? defaultIndex;
+
+    // 1. 정책이 스마트 동적 정책이거나 지능형 모드인 경우
+    if (criteria.includes('DISK_1') || criteria.includes('INDEX_1') || (criteria === 'SMART_AUTO' && preferredIndex === 1) || policy?.id?.toLowerCase().includes('disk1')) {
+        const d1 = clientDisks.find(d => d.diskIndex === 1);
+        if (d1) return d1.diskIndex;
+        if (clientDisks.length > 1) return clientDisks[1].diskIndex ?? 1;
+        return clientDisks[0].diskIndex ?? 0;
+    }
+
+    // 2. 디스크 0번 우선
+    if (criteria.includes('DISK_0') || criteria.includes('INDEX_0') || (criteria === 'SMART_AUTO' && preferredIndex === 0 && criteria !== 'SMART_AUTO')) {
+        const d0 = clientDisks.find(d => d.diskIndex === 0);
+        if (d0) return d0.diskIndex;
+        return clientDisks[0].diskIndex ?? 0;
+    }
+
+    // 3. NVMe 버스 타입 우선
+    if (criteria.includes('NVME')) {
+        const nvmes = clientDisks.filter(d => (d.busType || '').toUpperCase().includes('NVME'));
+        if (nvmes.length === 1) return nvmes[0].diskIndex ?? 0;
+        if (nvmes.length > 1) {
+            if (preferredIndex === 1) {
+                const n1 = nvmes.find(d => d.diskIndex === 1);
+                if (n1) return n1.diskIndex;
+            }
+            nvmes.sort((a, b) => getDiskGb(a) - getDiskGb(b));
+            return nvmes[0].diskIndex ?? 0;
+        }
+    }
+
+    // 4. 큰 용량 디스크 우선
+    if (criteria.includes('LARGER')) {
+        const sorted = [...clientDisks].sort((a, b) => getDiskGb(b) - getDiskGb(a));
+        return sorted[0].diskIndex ?? 0;
+    }
+
+    // 5. SMART_AUTO (기본) or SMALLER_FIRST
+    const sorted = [...clientDisks].sort((a, b) => getDiskGb(a) - getDiskGb(b));
+    const diff = Math.abs(getDiskGb(sorted[0]) - getDiskGb(sorted[sorted.length - 1]));
+    if (diff > 3.0) {
+        return sorted[0].diskIndex ?? 0;
+    }
+
+    // 동일 크기인 경우
+    if (preferredIndex === 1) {
+        const d1 = clientDisks.find(d => d.diskIndex === 1);
+        if (d1) return d1.diskIndex;
+    }
+    const match = clientDisks.find(d => d.diskIndex === preferredIndex);
+    return match ? match.diskIndex : (clientDisks[0].diskIndex ?? 0);
+}
+
+// 스마트 지능형 동적 파티션 스크립트 생성 엔진 (사용자 지정 조건부 분할)
+function generateDynamicSmartPartitionCommands(clientDisks = [], policy = null, defaultTargetDiskIndex = 0) {
     const cmds = [];
 
     // 디스크 목록이 없거나 비어있는 경우 Disk 0 단일 디스크로 대체
@@ -397,7 +485,7 @@ function generateDynamicSmartPartitionCommands(clientDisks = []) {
         const osDisk = sorted[0];
         const dataDisks = sorted.slice(1);
 
-        // 1. OS 디스크: 전체 GPT 포맷, EFI, MSR 생성 후 전체를 "Windows11" 라벨로 포맷
+        // 1. 정책이 스마트 동적 정책이거나 지능형 모드인 경우
         cmds.push(`select disk ${osDisk.diskIndex ?? 0}`);
         cmds.push('clean');
         cmds.push('convert gpt');
@@ -429,9 +517,10 @@ function generateDynamicSmartPartitionCommands(clientDisks = []) {
 }
 
 function generateDiskpartCommands(policy, clientDisks = [], targetDiskIndex = 0) {
-    // 1. 정책이 스마트 동적 정책이거나, 지능형 모드인 경우
-    if (policy.isSmartDynamic || policy.id === 'policy-smart-auto-gpt' || !policy.layout && (!policy.diskpartCommands || policy.diskpartCommands.length === 0)) {
-        return generateDynamicSmartPartitionCommands(clientDisks);
+    const osDiskIndex = determineTargetOsDiskIndex(policy, clientDisks, targetDiskIndex);
+    // 1. 정책이 스마트 동적 정책이거나 지능형 모드인 경우
+    if (policy.isSmartDynamic || policy.id === 'policy-smart-auto-gpt' || policy.id.startsWith('policy-dual-') || (!policy.layout && (!policy.diskpartCommands || policy.diskpartCommands.length === 0))) {
+        return generateDynamicSmartPartitionCommands(clientDisks, policy, osDiskIndex);
     }
 
     // 2. 관리자가 직접 지정한 Diskpart 명령이 있는 경우
@@ -523,7 +612,8 @@ function approveClientDeploy(sessionId, customImage = null) {
 
     const policy = client.matchedPolicy || partitionPolicies[0];
     const imageRule = customImage || client.matchedImage || imageCatalog[0];
-    const cmds = generateDiskpartCommands(policy, client.disks, 0);
+    const targetDiskIndex = determineTargetOsDiskIndex(policy, client.disks, 0);
+    const cmds = generateDiskpartCommands(policy, client.disks, targetDiskIndex);
 
     const targetFileName = imageRule?.targetImage?.imageFileName || imageRule?.imageFileName || 'Win11_Universal.wim';
     const targetIndex = imageRule?.targetImage?.imageIndex || imageRule?.imageIndex || 1;
@@ -536,7 +626,7 @@ function approveClientDeploy(sessionId, customImage = null) {
         type: 'MASTER_APPROVE_DEPLOY',
         payload: {
             sessionId,
-            targetDiskIndex: 0,
+            targetDiskIndex: targetDiskIndex,
             partitionPolicyId: policy.id,
             partitionCommands: cmds,
             imageInfo: {

@@ -157,7 +157,8 @@ namespace MultiDeployOS.Master.Services
 
             try
             {
-                var cmds = SmartPartitionEngine.GenerateCommands(policy, session.Disks, 0);
+                int targetDiskIndex = SmartPartitionEngine.DetermineTargetOsDiskIndex(policy, session.Disks, 0);
+                var cmds = SmartPartitionEngine.GenerateCommands(policy, session.Disks, targetDiskIndex);
 
                 string rawPattern = imageRule.TargetImage?.ImageFileName ?? "*.wim";
                 int targetIndex = imageRule.TargetImage?.ImageIndex ?? 1;
@@ -231,7 +232,7 @@ namespace MultiDeployOS.Master.Services
                     payload = new
                     {
                         sessionId = session.SessionId,
-                        targetDiskIndex = 0,
+                        targetDiskIndex = targetDiskIndex,
                         partitionPolicyId = policy.Id,
                         partitionCommands = cmds,
                         imageInfo = new

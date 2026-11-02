@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -453,6 +453,33 @@ namespace MultiDeployOS.Master.Forms
 
             var itemResetImage = _rowContextMenu.Items.Add("⚡ 기본 자동선택으로 재설정 (디폴트 복귀)");
             itemResetImage.Click += (s, e) => ResetSelectedClientsToAutoImage();
+
+            var itemSelectPolicy = new ToolStripMenuItem("📐 파티션 정책 수동 변경");
+            _rowContextMenu.Items.Add(itemSelectPolicy);
+
+            _rowContextMenu.Opening += (s, e) =>
+            {
+                itemSelectPolicy.DropDownItems.Clear();
+                if (_gridClients.SelectedRows.Count == 0 || !(_gridClients.SelectedRows[0].Tag is ClientSession session))
+                {
+                    itemSelectPolicy.Enabled = false;
+                    return;
+                }
+
+                itemSelectPolicy.Enabled = (session.Status == "READY" || session.Status == "FAILED" || session.Status == "SUCCESS");
+                foreach (var policy in _configManager.PartitionPolicies)
+                {
+                    var pItem = new ToolStripMenuItem(policy.Name);
+                    pItem.Checked = (session.MatchedPolicy?.Id == policy.Id);
+                    pItem.Click += (ps, pe) =>
+                    {
+                        session.MatchedPolicy = policy;
+                        RefreshGridRows();
+                        Console.WriteLine($"[+] [파티션 정책 변경] {session.IpAddress} ({session.System.ModelName}) -> '{policy.Name}' 수동 지정됨");
+                    };
+                    itemSelectPolicy.DropDownItems.Add(pItem);
+                }
+            };
 
             _rowContextMenu.Items.Add(new ToolStripSeparator());
 

@@ -75,8 +75,25 @@ namespace MultiDeployOS.Master.Services
             int diskCount = client.Disks.Count;
             var targetDisk = client.Disks.FirstOrDefault();
             double targetCapacityGb = targetDisk != null ? (targetDisk.SizeGb > 0 ? targetDisk.SizeGb : (targetDisk.SizeBytes / (1024.0 * 1024 * 1024))) : 0;
+            string clientModel = client.System.ModelName ?? "";
 
-            foreach (var policy in policies)
+            // 구체성(Specificity) 우선순위 정렬:
+            // 1. 모델 패턴이 구체적으로 지정된 정책 (+1000점)
+            // 2. 디스크 최소 수량이 2개 이상 등 구체적 디스크 조건 (+100점)
+            // 3. SMART_AUTO 외의 특정 타깃 디스크 기준이 명시된 정책 (+30점 / +20점)
+            // 4. 디스크 용량 제한이 구체적인 정책 (+10점)
+            // -> 범용 와일드카드(*) 정책보다 구체적인 조건의 정책이 우선 매칭됩니다.
+            var candidatePolicies = policies
+                .Select(p => new
+                {
+                    Policy = p,
+                    Score = CalculatePolicyScore(p)
+                })
+                .OrderByDescending(x => x.Score)
+                .Select(x => x.Policy)
+                .ToList();
+
+            foreach (var policy in candidatePolicies)
             {
                 var cond = policy.Conditions;
                 if (cond == null) continue;
@@ -93,7 +110,7 @@ namespace MultiDeployOS.Master.Services
                 if (!string.IsNullOrWhiteSpace(cond.ModelPattern) && cond.ModelPattern != "*")
                 {
                     var parts = cond.ModelPattern.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-                    bool modelMatched = parts.Any(p => FlexibleMatch(client.System.ModelName ?? "", p));
+                    bool modelMatched = parts.Any(p => FlexibleMatch(clientModel, p));
                     if (!modelMatched) continue;
                 }
 
@@ -101,6 +118,33 @@ namespace MultiDeployOS.Master.Services
             }
 
             return policies[0];
+        }
+
+        private static int CalculatePolicyScore(PartitionPolicy policy)
+        {
+            int score = 0;
+            var cond = policy.Conditions;
+            if (cond == null) return score;
+
+            // 모델 패턴이 구체적인 경우
+            if (!string.IsNullOrWhiteSpace(cond.ModelPattern) && cond.ModelPattern != "*") score += 1000;
+
+            // 디스크 개수 조건이 구체적인 경우 (예: 듀얼 디스크 2개 이상)
+            if (cond.DiskCountMin >= 2) score += 100;
+            else if (cond.DiskCountMax < 99) score += 50;
+
+            // 특정 타깃 디스크 기준이 설정된 경우 (DISK_1_FIRST 등)
+            if (!string.IsNullOrWhiteSpace(cond.TargetDiskCriteria) &&
+                cond.TargetDiskCriteria != "SMART_AUTO" && cond.TargetDiskCriteria != "INDEX_0")
+            {
+                score += 30;
+            }
+            if (cond.TargetDiskIndex == 1) score += 20;
+
+            // 용량 조건이 구체적인 경우
+            if (cond.MinCapacityGb > 0 || cond.MaxCapacityGb < 99999) score += 10;
+
+            return score;
         }
 
         public static bool FlexibleMatch(string input, string pattern)

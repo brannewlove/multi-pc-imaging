@@ -44,6 +44,7 @@ if not exist "bin\config" mkdir "bin\config"
 for %%F in ("MasterApp\config\*.json") do (
     if not exist "bin\config\%%~nxF" copy /y "%%F" "bin\config\" >nul 2>nul
 )
+copy /y "MasterApp\config\partition_policies.json" "bin\config\" >nul 2>nul
 
 REM Sync PXE assets
 if not exist "bin\pxe" mkdir "bin\pxe"
@@ -65,7 +66,6 @@ echo  [SUCCESS] Native Master App built successfully!
 echo  Output: %~dp0bin\MultiDeployMaster.exe
 echo ================================================================
 echo.
-echo Press any key to start the updated master app...
-pause >nul
+echo [SUCCESS] Starting updated MultiDeployMaster.exe...
 start "" "%~dp0bin\MultiDeployMaster.exe"
 endlocal

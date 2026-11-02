@@ -43,9 +43,9 @@ namespace MultiDeployOS.Master.Forms
 
             Rectangle workArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1366, 768);
             int targetW = Math.Min(1180, Math.Max(880, workArea.Width - 40));
-            int targetH = Math.Min(760, Math.Max(540, workArea.Height - 50));
+            int targetH = Math.Min(780, Math.Max(560, workArea.Height - 50));
             this.Size = new Size(targetW, targetH);
-            this.MinimumSize = new Size(880, 520);
+            this.MinimumSize = new Size(880, 540);
             this.StartPosition = FormStartPosition.CenterParent;
 
             // 좌측 목록 패널 (고정 너비 330px)
@@ -104,7 +104,7 @@ namespace MultiDeployOS.Master.Forms
                 BackColor = Color.FromArgb(40, 48, 62)
             };
 
-            // 우측 편집 패널 (남은 가로 전체 800px+ 차지)
+            // 우측 편집 패널
             var pnlRight = new Panel
             {
                 Dock = DockStyle.Fill,
@@ -140,8 +140,15 @@ namespace MultiDeployOS.Master.Forms
             AddFormRow(formTable, "설명 (메모):", _txtDesc = new TextBox { Width = 500, Font = new Font("맑은 고딕", 9.5f) });
             AddFormRow(formTable, "모델 매칭 패턴:", _txtModel = new TextBox { Width = 400, Text = "*", Font = new Font("맑은 고딕", 9.5f) });
 
-            AddFormRow(formTable, "타깃 디스크:", _cboDiskCriteria = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 });
-            _cboDiskCriteria.Items.AddRange(new object[] { "SMART_AUTO (지능형 자동)", "NVME_FIRST (NVMe 우선)", "INDEX_0 (디스크 0번)" });
+            AddFormRow(formTable, "타깃 디스크 우선순위:", _cboDiskCriteria = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 380 });
+            _cboDiskCriteria.Items.AddRange(new object[] {
+                "SMART_AUTO (지능형 자동 - 크기 비교 및 스마트 분할)",
+                "DISK_1_FIRST (Disk 1번 OS / Disk 0번 Data - 듀얼 NVMe 추천)",
+                "DISK_0_FIRST (Disk 0번 OS / Disk 1번 Data - 표준 다중)",
+                "NVME_FIRST (NVMe 버스 타입 우선)",
+                "SMALLER_FIRST (작은 용량 디스크 OS 우선)",
+                "LARGER_FIRST (큰 용량 디스크 OS 우선)"
+            });
             _cboDiskCriteria.SelectedIndex = 0;
 
             var pnlCap = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
@@ -163,23 +170,24 @@ namespace MultiDeployOS.Master.Forms
             };
             AddFormRow(formTable, "자동 승인:", _chkAutoApprove);
 
-            // 템플릿 버튼 바 (2x2 그리드 배열로 버튼 잘림 없이 깔끔하게 배치)
+            // 템플릿 버튼 바 (3열 x 2행 그리드)
             var grpTemplate = new GroupBox
             {
                 Text = "💡 조건별 추천 템플릿 빠른 적용 (클릭 시 자동 세팅)",
                 Dock = DockStyle.Top,
-                Height = 98,
+                Height = 110,
                 ForeColor = Color.FromArgb(148, 163, 184),
                 Padding = new Padding(10, 8, 10, 8)
             };
             var tblTemplate = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 2,
+                ColumnCount = 3,
                 RowCount = 2
             };
-            tblTemplate.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-            tblTemplate.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            tblTemplate.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
+            tblTemplate.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
+            tblTemplate.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.34f));
             tblTemplate.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
             tblTemplate.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
 
@@ -198,15 +206,27 @@ namespace MultiDeployOS.Master.Forms
             btnTplHalf512.Margin = new Padding(3);
             btnTplHalf512.Click += (s, e) => ApplyTemplateHalf512();
 
-            var btnTplMulti = CreateButton("[다중 디스크] 최소용량 OS / 나머지 Data", Color.FromArgb(124, 58, 237));
-            btnTplMulti.Dock = DockStyle.Fill;
-            btnTplMulti.Margin = new Padding(3);
-            btnTplMulti.Click += (s, e) => ApplyTemplateMultiDisk();
+            var btnTplDualDisk1 = CreateButton("⭐ [듀얼] Disk 1: OS / Disk 0: Data", Color.FromArgb(124, 58, 237));
+            btnTplDualDisk1.Dock = DockStyle.Fill;
+            btnTplDualDisk1.Margin = new Padding(3);
+            btnTplDualDisk1.Click += (s, e) => ApplyTemplateDualDisk1();
+
+            var btnTplDualDisk0 = CreateButton("[듀얼] Disk 0: OS / Disk 1: Data", Color.FromArgb(109, 40, 217));
+            btnTplDualDisk0.Dock = DockStyle.Fill;
+            btnTplDualDisk0.Margin = new Padding(3);
+            btnTplDualDisk0.Click += (s, e) => ApplyTemplateDualDisk0();
+
+            var btnTplSmart = CreateButton("⚡ [지능형] 디스크 자동 감지 (Smart)", Color.FromArgb(5, 150, 105));
+            btnTplSmart.Dock = DockStyle.Fill;
+            btnTplSmart.Margin = new Padding(3);
+            btnTplSmart.Click += (s, e) => ApplyTemplateSmartDynamic();
 
             tblTemplate.Controls.Add(btnTplSingleC, 0, 0);
             tblTemplate.Controls.Add(btnTplOver512, 1, 0);
-            tblTemplate.Controls.Add(btnTplHalf512, 0, 1);
-            tblTemplate.Controls.Add(btnTplMulti, 1, 1);
+            tblTemplate.Controls.Add(btnTplHalf512, 2, 0);
+            tblTemplate.Controls.Add(btnTplDualDisk1, 0, 1);
+            tblTemplate.Controls.Add(btnTplDualDisk0, 1, 1);
+            tblTemplate.Controls.Add(btnTplSmart, 2, 1);
             grpTemplate.Controls.Add(tblTemplate);
 
             // Diskpart 스크립트 에디터
@@ -237,7 +257,7 @@ namespace MultiDeployOS.Master.Forms
             _btnSave.Click += (s, e) => SaveCurrentPolicy();
             pnlSave.Controls.Add(_btnSave);
 
-            // ★ 핵심: WinForms에서 DockStyle.Top 컨트롤들은 역순으로 추가해야 위에서부터 순서대로 배치됩니다!
+            // 컨트롤 역순 추가 (DockStyle.Top 올바른 위->아래 배치)
             pnlRight.Controls.Add(pnlSave);
             pnlRight.Controls.Add(_txtCommands);
             pnlRight.Controls.Add(lblScript);
@@ -308,13 +328,42 @@ namespace MultiDeployOS.Master.Forms
             _numMaxCap.Value = p.Conditions?.MaxCapacityGb ?? 99999;
             _chkAutoApprove.Checked = p.AutoApprove;
 
+            // 타깃 디스크 기준 선택 바인딩
+            string crit = p.Conditions?.TargetDiskCriteria?.ToUpperInvariant() ?? "SMART_AUTO";
+            int targetIdx = p.Conditions?.TargetDiskIndex ?? 0;
+
+            if (crit.Contains("DISK_1") || crit.Contains("INDEX_1") || (crit == "SMART_AUTO" && targetIdx == 1))
+            {
+                _cboDiskCriteria.SelectedIndex = 1;
+            }
+            else if (crit.Contains("DISK_0") || crit.Contains("INDEX_0"))
+            {
+                _cboDiskCriteria.SelectedIndex = 2;
+            }
+            else if (crit.Contains("NVME"))
+            {
+                _cboDiskCriteria.SelectedIndex = 3;
+            }
+            else if (crit.Contains("SMALLER"))
+            {
+                _cboDiskCriteria.SelectedIndex = 4;
+            }
+            else if (crit.Contains("LARGER"))
+            {
+                _cboDiskCriteria.SelectedIndex = 5;
+            }
+            else
+            {
+                _cboDiskCriteria.SelectedIndex = 0;
+            }
+
             if (p.DiskpartCommands != null && p.DiskpartCommands.Count > 0)
             {
                 _txtCommands.Text = string.Join(Environment.NewLine, p.DiskpartCommands);
             }
-            else if (p.IsSmartDynamic || p.Id == "policy-smart-auto-gpt")
+            else if (p.IsSmartDynamic || p.Id == "policy-smart-auto-gpt" || p.Id.StartsWith("policy-dual-"))
             {
-                _txtCommands.Text = "# [지능형 자동 감지 분할 모드] 타깃 PC 디스크 수량 및 용량(512GB 기준 300GB / 50% 분할)에 따라 실시간 자동 생성됩니다.";
+                _txtCommands.Text = "# [지능형 자동 감지 분할 모드] 타깃 PC 디스크 수량 및 용량에 따라 실시간 자동 생성됩니다.";
             }
             else
             {
@@ -340,6 +389,7 @@ namespace MultiDeployOS.Master.Forms
         private void ApplyTemplateSingleC()
         {
             _cboScheme.SelectedItem = "GPT";
+            _cboDiskCriteria.SelectedIndex = 0;
             _txtCommands.Text = string.Join(Environment.NewLine, new[]
             {
                 "select disk 0", "clean", "convert gpt",
@@ -352,6 +402,7 @@ namespace MultiDeployOS.Master.Forms
         private void ApplyTemplateOver512()
         {
             _cboScheme.SelectedItem = "GPT";
+            _cboDiskCriteria.SelectedIndex = 0;
             _txtCommands.Text = string.Join(Environment.NewLine, new[]
             {
                 "select disk 0", "clean", "convert gpt",
@@ -365,6 +416,7 @@ namespace MultiDeployOS.Master.Forms
         private void ApplyTemplateHalf512()
         {
             _cboScheme.SelectedItem = "GPT";
+            _cboDiskCriteria.SelectedIndex = 0;
             _txtCommands.Text = string.Join(Environment.NewLine, new[]
             {
                 "select disk 0", "clean", "convert gpt",
@@ -375,9 +427,31 @@ namespace MultiDeployOS.Master.Forms
             });
         }
 
-        private void ApplyTemplateMultiDisk()
+        private void ApplyTemplateDualDisk1()
         {
             _cboScheme.SelectedItem = "GPT";
+            _cboDiskCriteria.SelectedIndex = 1; // DISK_1_FIRST
+            _txtCommands.Text = string.Join(Environment.NewLine, new[]
+            {
+                "select disk 1", "clean", "convert gpt",
+                "create partition efi size=100", "format quick fs=fat32 label=System", "assign letter=S",
+                "create partition msr size=16",
+                "create partition primary", "format quick fs=ntfs label=Windows11", "assign letter=W",
+                "select disk 0", "clean", "convert gpt",
+                "create partition primary", "format quick fs=ntfs label=Data", "assign letter=D"
+            });
+            if (_currentSelected != null)
+            {
+                _currentSelected.Conditions.DiskCountMin = 2;
+                _currentSelected.Conditions.TargetDiskCriteria = "DISK_1_FIRST";
+                _currentSelected.Conditions.TargetDiskIndex = 1;
+            }
+        }
+
+        private void ApplyTemplateDualDisk0()
+        {
+            _cboScheme.SelectedItem = "GPT";
+            _cboDiskCriteria.SelectedIndex = 2; // DISK_0_FIRST
             _txtCommands.Text = string.Join(Environment.NewLine, new[]
             {
                 "select disk 0", "clean", "convert gpt",
@@ -387,6 +461,24 @@ namespace MultiDeployOS.Master.Forms
                 "select disk 1", "clean", "convert gpt",
                 "create partition primary", "format quick fs=ntfs label=Data", "assign letter=D"
             });
+            if (_currentSelected != null)
+            {
+                _currentSelected.Conditions.DiskCountMin = 2;
+                _currentSelected.Conditions.TargetDiskCriteria = "DISK_0_FIRST";
+                _currentSelected.Conditions.TargetDiskIndex = 0;
+            }
+        }
+
+        private void ApplyTemplateSmartDynamic()
+        {
+            _cboScheme.SelectedItem = "GPT";
+            _cboDiskCriteria.SelectedIndex = 0; // SMART_AUTO
+            _txtCommands.Text = "# [지능형 자동 감지 분할 모드] 타깃 PC 디스크 수량 및 용량(512GB 기준 300GB / 50% 분할)에 따라 실시간 자동 생성됩니다.";
+            if (_currentSelected != null)
+            {
+                _currentSelected.IsSmartDynamic = true;
+                _currentSelected.Conditions.TargetDiskCriteria = "SMART_AUTO";
+            }
         }
 
         private void SaveCurrentPolicy()
@@ -412,6 +504,35 @@ namespace MultiDeployOS.Master.Forms
             _currentSelected.Conditions.ModelPattern = _txtModel.Text.Trim();
             _currentSelected.Conditions.MinCapacityGb = (int)_numMinCap.Value;
             _currentSelected.Conditions.MaxCapacityGb = (int)_numMaxCap.Value;
+
+            // 타깃 디스크 기준 저장
+            int selIdx = _cboDiskCriteria.SelectedIndex;
+            switch (selIdx)
+            {
+                case 1:
+                    _currentSelected.Conditions.TargetDiskCriteria = "DISK_1_FIRST";
+                    _currentSelected.Conditions.TargetDiskIndex = 1;
+                    if (_currentSelected.Conditions.DiskCountMin < 2) _currentSelected.Conditions.DiskCountMin = 2;
+                    break;
+                case 2:
+                    _currentSelected.Conditions.TargetDiskCriteria = "DISK_0_FIRST";
+                    _currentSelected.Conditions.TargetDiskIndex = 0;
+                    if (_currentSelected.Conditions.DiskCountMin < 2) _currentSelected.Conditions.DiskCountMin = 2;
+                    break;
+                case 3:
+                    _currentSelected.Conditions.TargetDiskCriteria = "NVME_FIRST";
+                    break;
+                case 4:
+                    _currentSelected.Conditions.TargetDiskCriteria = "SMALLER_FIRST";
+                    break;
+                case 5:
+                    _currentSelected.Conditions.TargetDiskCriteria = "LARGER_FIRST";
+                    break;
+                default:
+                    _currentSelected.Conditions.TargetDiskCriteria = "SMART_AUTO";
+                    _currentSelected.Conditions.TargetDiskIndex = 0;
+                    break;
+            }
 
             string script = _txtCommands.Text.Trim();
             if (script.StartsWith("# [지능형"))
