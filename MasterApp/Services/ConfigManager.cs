@@ -32,18 +32,47 @@ namespace MultiDeployOS.Master.Services
 
         private string ResolveConfigDirectory()
         {
-            // 1. 현재 실행 위치 바로 아래 config
+            // 실행 바이너리 디렉터리 하위의 config 폴더를 독립적인 런타임 저장소로 사용 (소스 코드 디렉터리 오염 방지)
             string localConfig = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config");
-            if (Directory.Exists(localConfig)) return localConfig;
+            if (!Directory.Exists(localConfig))
+            {
+                try { Directory.CreateDirectory(localConfig); } catch { }
+            }
 
-            // 2. 상위 master/config 디렉터리 (개발 소스 환경)
-            string parentMasterConfig = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "master", "config"));
-            if (Directory.Exists(parentMasterConfig)) return parentMasterConfig;
-
-            string repoMasterConfig = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "master", "config"));
-            if (Directory.Exists(repoMasterConfig)) return repoMasterConfig;
+            // 초기 실행 시 필요한 기본 템플릿 파일이 localConfig에 없다면 소스 템플릿에서 1회 복사
+            SeedDefaultConfigsIfMissing(localConfig);
 
             return localConfig;
+        }
+
+        private void SeedDefaultConfigsIfMissing(string targetConfigDir)
+        {
+            try
+            {
+                string[] templateCandidates = new[]
+                {
+                    Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "MasterApp", "config")),
+                    Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "MasterApp", "config")),
+                    Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "MasterApp", "config")),
+                    Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "master", "config")),
+                    Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "master", "config"))
+                };
+
+                string? sourceTemplateDir = templateCandidates.FirstOrDefault(d => Directory.Exists(d));
+                if (sourceTemplateDir != null && !string.Equals(sourceTemplateDir, targetConfigDir, StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (var srcFile in Directory.GetFiles(sourceTemplateDir, "*.json"))
+                    {
+                        string fileName = Path.GetFileName(srcFile);
+                        string destFile = Path.Combine(targetConfigDir, fileName);
+                        if (!File.Exists(destFile))
+                        {
+                            File.Copy(srcFile, destFile, overwrite: false);
+                        }
+                    }
+                }
+            }
+            catch { }
         }
 
         public void LoadAll()
@@ -129,27 +158,6 @@ namespace MultiDeployOS.Master.Services
                 File.WriteAllText(path, json);
             }
             catch (Exception ex) { Console.WriteLine("[-] ui_settings.json 저장 실패: " + ex.Message); }
-
-            // 개발/소스 환경인 경우 소스 디렉터리의 ui_settings.json도 함께 동기화 (재빌드 시 덮어쓰기 방지)
-            try
-            {
-                string[] sourceCandidates = new[]
-                {
-                    Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "MasterApp", "config", "ui_settings.json")),
-                    Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "MasterApp", "config", "ui_settings.json")),
-                    Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "MasterApp", "config", "ui_settings.json")),
-                    Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "master", "config", "ui_settings.json"))
-                };
-
-                foreach (var srcPath in sourceCandidates)
-                {
-                    if (File.Exists(srcPath) && !string.Equals(srcPath, path, StringComparison.OrdinalIgnoreCase))
-                    {
-                        File.WriteAllText(srcPath, json);
-                    }
-                }
-            }
-            catch { }
         }
 
         public void LoadPartitionPolicies()

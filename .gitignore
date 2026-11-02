@@ -17,5 +17,17 @@ bin/
 client/build/build.ninja
 client/build/.ninja_deps
 client/build/.ninja_log
+# Visual Studio / Rider / IDE user settings
+.vs/
+*.user
+*.userosscache
+*.suo
+
+# Backup & temporary files
+*backup*.json
+*.bak
+*.tmp
+
 *.log
+
 
