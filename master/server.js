@@ -270,6 +270,20 @@ function matchPartitionPolicy(client) {
             if (!pattern.test(client.system.modelName || '')) continue;
         }
 
+        // ???NVMe Disk 1 OS ?뱀닔 ?뺤콉 議곌굔 寃??
+        // ?붿뒪?ш? 2媛??댁긽?댁뼱???⑸웾 李⑥씠媛 ?덇굅?? NVMe媛 1媛쒕퓧??寃쎌슦?먮뒗 湲곗〈 ?ㅻ쭏???뺤콉???곸슜?섏뼱????
+        // 듀얼 NVMe Disk 1 OS 특수 정책 조건 검사:
+        // 디스크가 2개 이상이어도 용량 차이가 있거나, NVMe가 1개뿐인 경우에는 기존 스마트 정책이 적용되어야 함!
+        if (policy.id === 'policy-dual-nvme-disk1-os' || cond.targetDiskCriteria === 'DISK_1_FIRST') {
+            if (diskCount < 2) continue;
+            const nvmeCount = client.disks.filter(d => (d.busType || '').toUpperCase().includes('NVME')).length;
+            if (nvmeCount < 2) continue;
+            const diskSizes = client.disks.map(d => getDiskGb(d)).sort((a, b) => a - b);
+            if (diskSizes.length >= 2 && Math.abs(diskSizes[diskSizes.length - 1] - diskSizes[0]) > 3.0) {
+                continue;
+            }
+        }
+
         return policy;
     }
 
@@ -363,58 +377,42 @@ function determineTargetOsDiskIndex(policy, clientDisks = [], defaultIndex = 0) 
     const criteria = (policy?.conditions?.targetDiskCriteria || 'SMART_AUTO').trim().toUpperCase();
     const preferredIndex = policy?.conditions?.targetDiskIndex ?? defaultIndex;
 
-    // 1. 정책이 스마트 동적 정책이거나 지능형 모드인 경우
-    if (criteria.includes('DISK_1') || criteria.includes('INDEX_1') || (criteria === 'SMART_AUTO' && preferredIndex === 1) || policy?.id?.toLowerCase().includes('disk1')) {
+    const nvmeList = clientDisks.filter(d => (d.busType || '').toUpperCase().includes('NVME'));
+    const sortedBySize = [...clientDisks].sort((a, b) => getDiskGb(a) - getDiskGb(b));
+    const sizeDiff = Math.abs(getDiskGb(sortedBySize[sortedBySize.length - 1]) - getDiskGb(sortedBySize[0]));
+    const hasSignificantSizeDiff = (sizeDiff > 3.0);
+
+    // [洹쒖튃 1] NVMe媛 ?뺥솗??1媛쒖씤 寃쎌슦 -> 怨좎냽 NVMe??OS ?ㅼ튂 (湲곗〈 ?뺤콉)
+    if (nvmeList.length === 1) {
+        return nvmeList[0].diskIndex ?? 0;
+    }
+
+    // [洹쒖튃 2] ?붿뒪??媛??⑸웾 李⑥씠媛 ?덈뒗 寃쎌슦 (> 3GB) -> ?묒? ?⑸웾 ?붿뒪?ъ뿉 OS ?ㅼ튂 (湲곗〈 ?뺤콉)
+    if (hasSignificantSizeDiff) {
+        if (nvmeList.length >= 2) {
+            const sortedNvmes = [...nvmeList].sort((a, b) => getDiskGb(a) - getDiskGb(b));
+            return sortedNvmes[0].diskIndex ?? 0;
+        }
+        return sortedBySize[0].diskIndex ?? 0;
+    }
+
+    // [洹쒖튃 3] ?숈씪 ?⑸웾??NVMe媛 2媛쒖씤 寃쎌슦 -> Disk 1踰덉뿉 OS, Disk 0踰덉뿉 Data ?ㅼ튂!
+    if (nvmeList.length >= 2 && !hasSignificantSizeDiff) {
         const d1 = clientDisks.find(d => d.diskIndex === 1);
         if (d1) return d1.diskIndex;
         if (clientDisks.length > 1) return clientDisks[1].diskIndex ?? 1;
         return clientDisks[0].diskIndex ?? 0;
     }
 
-    // 2. 디스크 0번 우선
-    if (criteria.includes('DISK_0') || criteria.includes('INDEX_0') || (criteria === 'SMART_AUTO' && preferredIndex === 0 && criteria !== 'SMART_AUTO')) {
-        const d0 = clientDisks.find(d => d.diskIndex === 0);
-        if (d0) return d0.diskIndex;
-        return clientDisks[0].diskIndex ?? 0;
-    }
-
-    // 3. NVMe 버스 타입 우선
-    if (criteria.includes('NVME')) {
-        const nvmes = clientDisks.filter(d => (d.busType || '').toUpperCase().includes('NVME'));
-        if (nvmes.length === 1) return nvmes[0].diskIndex ?? 0;
-        if (nvmes.length > 1) {
-            if (preferredIndex === 1) {
-                const n1 = nvmes.find(d => d.diskIndex === 1);
-                if (n1) return n1.diskIndex;
-            }
-            nvmes.sort((a, b) => getDiskGb(a) - getDiskGb(b));
-            return nvmes[0].diskIndex ?? 0;
-        }
-    }
-
-    // 4. 큰 용량 디스크 우선
-    if (criteria.includes('LARGER')) {
-        const sorted = [...clientDisks].sort((a, b) => getDiskGb(b) - getDiskGb(a));
-        return sorted[0].diskIndex ?? 0;
-    }
-
-    // 5. SMART_AUTO (기본) or SMALLER_FIRST
-    const sorted = [...clientDisks].sort((a, b) => getDiskGb(a) - getDiskGb(b));
-    const diff = Math.abs(getDiskGb(sorted[0]) - getDiskGb(sorted[sorted.length - 1]));
-    if (diff > 3.0) {
-        return sorted[0].diskIndex ?? 0;
-    }
-
-    // 동일 크기인 경우
-    if (preferredIndex === 1) {
+    // [洹쒖튃 4] ????NVMe媛 ?꾨땲嫄곕굹 ?숈씪 ?⑸웾??寃쎌슦 -> Disk 0踰??곗꽑
+    if (criteria.includes('DISK_1') || preferredIndex === 1) {
         const d1 = clientDisks.find(d => d.diskIndex === 1);
         if (d1) return d1.diskIndex;
     }
-    const match = clientDisks.find(d => d.diskIndex === preferredIndex);
-    return match ? match.diskIndex : (clientDisks[0].diskIndex ?? 0);
-}
 
-// 스마트 지능형 동적 파티션 스크립트 생성 엔진 (사용자 지정 조건부 분할)
+    const d0 = clientDisks.find(d => d.diskIndex === 0);
+    return d0 ? d0.diskIndex : (clientDisks[0].diskIndex ?? 0);
+}
 function generateDynamicSmartPartitionCommands(clientDisks = [], policy = null, defaultTargetDiskIndex = 0) {
     const cmds = [];
 

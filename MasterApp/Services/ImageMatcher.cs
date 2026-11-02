@@ -114,6 +114,24 @@ namespace MultiDeployOS.Master.Services
                     if (!modelMatched) continue;
                 }
 
+                // 듀얼 NVMe Disk 1 OS 특수 정책 조건 검사:
+                // 디스크가 2개 이상이어도 용량 차이가 있거나, NVMe가 1개뿐인 경우에는 기존 스마트 정책이 적용되어야 함!
+                if (policy.Id == "policy-dual-nvme-disk1-os" || cond.TargetDiskCriteria == "DISK_1_FIRST")
+                {
+                    if (diskCount < 2) continue;
+
+                    // NVMe가 2개 미만인 경우 (NVMe가 1개뿐이거나 SATA만 있는 경우) -> 기존 정책 적용
+                    int nvmeCount = client.Disks.Count(d => (d.BusType ?? "").Contains("NVME", StringComparison.OrdinalIgnoreCase));
+                    if (nvmeCount < 2) continue;
+
+                    // 두 디스크 간 용량 차이가 있는 경우 (3GB 초과 차이) -> 기존 정책 적용
+                    var diskSizes = client.Disks.Select(d => d.SizeGb > 0 ? d.SizeGb : (d.SizeBytes / (1024.0 * 1024 * 1024))).OrderBy(s => s).ToList();
+                    if (diskSizes.Count >= 2 && Math.Abs(diskSizes.Last() - diskSizes.First()) > 3.0)
+                    {
+                        continue;
+                    }
+                }
+
                 return policy;
             }
 

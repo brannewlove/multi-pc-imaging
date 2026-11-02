@@ -9,6 +9,11 @@ namespace MultiDeployOS.Master.Services
     {
         /// <summary>
         /// 정책 및 하드웨어 구성에 맞춰 실제 OS(W:)가 설치될 타깃 디스크 번호(DiskIndex)를 결정합니다.
+        /// [규칙]
+        /// 1. NVMe가 1개뿐인 경우 -> 고속 NVMe에 OS 설치 (기존 정책)
+        /// 2. 디스크 간 용량 차이가 있는 경우(> 3GB) -> 작은 용량 디스크에 OS 설치 (기존 정책)
+        /// 3. 동일 용량의 NVMe가 2개인 경우 -> Disk 1번에 OS, Disk 0번에 Data 설치 (사용자 지정 특수 환경)
+        /// 4. 둘 다 SATA이거나 기타 동일 용량인 경우 -> Disk 0번에 OS 설치 (기존 표준)
         /// </summary>
         public static int DetermineTargetOsDiskIndex(PartitionPolicy? policy, List<DiskInfo>? clientDisks, int defaultIndex = 0)
         {
@@ -25,10 +30,33 @@ namespace MultiDeployOS.Master.Services
             string criteria = policy?.Conditions?.TargetDiskCriteria?.Trim().ToUpperInvariant() ?? "SMART_AUTO";
             int preferredIndex = policy?.Conditions?.TargetDiskIndex ?? defaultIndex;
 
-            // 1. 디스크 1번 우선 (듀얼 NVMe 슬롯 1번 환경 등)
-            if (criteria.Contains("DISK_1") || criteria.Contains("INDEX_1") || 
-                (criteria == "SMART_AUTO" && preferredIndex == 1) ||
-                (policy?.Id?.Contains("disk1", StringComparison.OrdinalIgnoreCase) == true))
+            // 디스크 하드웨어 특성 분석
+            var nvmeList = clientDisks.Where(d => (d.BusType ?? "").Contains("NVME", StringComparison.OrdinalIgnoreCase)).ToList();
+            var sortedBySize = clientDisks.OrderBy(GetDiskGb).ToList();
+            double sizeDiff = Math.Abs(GetDiskGb(sortedBySize.Last()) - GetDiskGb(sortedBySize.First()));
+            bool hasSignificantSizeDiff = (sizeDiff > 3.0); // 3GB 초과 차이나면 용량 차이 존재
+
+            // [규칙 1] NVMe가 정확히 1개인 경우 (나머지는 SATA SSD / HDD):
+            // -> 고속 NVMe 디스크에 무조건 Windows 11(OS) 설치 (기존 정책)
+            if (nvmeList.Count == 1)
+            {
+                return nvmeList[0].DiskIndex;
+            }
+
+            // [규칙 2] 디스크 간 용량 차이가 유의미하게 있는 경우 (> 3GB):
+            // -> 작은 용량 디스크(OS용 SSD)에 Windows 11 설치, 큰 디스크는 Data (기존 정책)
+            if (hasSignificantSizeDiff)
+            {
+                if (nvmeList.Count >= 2)
+                {
+                    return nvmeList.OrderBy(GetDiskGb).First().DiskIndex;
+                }
+                return sortedBySize.First().DiskIndex;
+            }
+
+            // [규칙 3] 두 디스크가 동일한 용량(차이 <= 3GB)이면서 둘 다 NVMe인 경우:
+            // -> 사용자의 핵심 요청 환경! Disk 1번에 Windows 11, Disk 0번에 Data 설치!
+            if (nvmeList.Count >= 2 && !hasSignificantSizeDiff)
             {
                 var d1 = clientDisks.FirstOrDefault(d => d.DiskIndex == 1);
                 if (d1 != null) return d1.DiskIndex;
@@ -36,56 +64,15 @@ namespace MultiDeployOS.Master.Services
                 return clientDisks[0].DiskIndex;
             }
 
-            // 2. 디스크 0번 우선
-            if (criteria.Contains("DISK_0") || criteria.Contains("INDEX_0") ||
-                (criteria == "SMART_AUTO" && preferredIndex == 0 && criteria != "SMART_AUTO"))
-            {
-                var d0 = clientDisks.FirstOrDefault(d => d.DiskIndex == 0);
-                if (d0 != null) return d0.DiskIndex;
-                return clientDisks[0].DiskIndex;
-            }
-
-            // 3. NVMe 버스 타입 우선
-            if (criteria.Contains("NVME"))
-            {
-                var nvmeList = clientDisks.Where(d => (d.BusType ?? "").Contains("NVME", StringComparison.OrdinalIgnoreCase)).ToList();
-                if (nvmeList.Count == 1) return nvmeList[0].DiskIndex;
-                if (nvmeList.Count > 1)
-                {
-                    if (preferredIndex == 1)
-                    {
-                        var nvme1 = nvmeList.FirstOrDefault(d => d.DiskIndex == 1);
-                        if (nvme1 != null) return nvme1.DiskIndex;
-                    }
-                    var smallestNvme = nvmeList.OrderBy(GetDiskGb).ThenBy(d => d.DiskIndex).First();
-                    return smallestNvme.DiskIndex;
-                }
-            }
-
-            // 4. 큰 용량 디스크 우선
-            if (criteria.Contains("LARGER"))
-            {
-                return clientDisks.OrderByDescending(GetDiskGb).ThenBy(d => d.DiskIndex).First().DiskIndex;
-            }
-
-            // 5. SMART_AUTO (기본) 또는 SMALLER_FIRST
-            // 용량 차이가 3GB 초과면 작은 디스크가 OS
-            var sortedBySize = clientDisks.OrderBy(d => Math.Round(GetDiskGb(d) / 2.0)).ToList();
-            double diff = Math.Abs(GetDiskGb(sortedBySize.First()) - GetDiskGb(sortedBySize.Last()));
-
-            if (diff > 3.0)
-            {
-                return sortedBySize.First().DiskIndex;
-            }
-
-            // 용량이 동일(±3GB 이내)한 경우: 정책의 TargetDiskIndex 설정(1 또는 0) 반영
-            if (preferredIndex == 1)
+            // [규칙 4] 둘 다 NVMe가 아니거나(SATA 2개 등) 동일 용량인 경우:
+            // -> 기존 표준 방식: Disk 0번 우선 (또는 명시적 DISK_1_FIRST 지정 시 반영)
+            if (criteria.Contains("DISK_1") || preferredIndex == 1)
             {
                 var d1 = clientDisks.FirstOrDefault(d => d.DiskIndex == 1);
                 if (d1 != null) return d1.DiskIndex;
             }
 
-            return clientDisks.FirstOrDefault(d => d.DiskIndex == preferredIndex)?.DiskIndex ?? clientDisks[0].DiskIndex;
+            return clientDisks.FirstOrDefault(d => d.DiskIndex == 0)?.DiskIndex ?? clientDisks[0].DiskIndex;
         }
 
         private static double GetDiskGb(DiskInfo disk)
