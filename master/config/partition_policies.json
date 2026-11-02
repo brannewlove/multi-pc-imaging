@@ -19,7 +19,7 @@
   {
     "id": "policy-dual-nvme-disk1-os",
     "name": "듀얼 디스크: 1번 NVMe(OS) + 0번(Data)",
-    "description": "동일 크기 NVMe 2개 장착 시 Disk 1번에 Windows11 및 부트로더(EFI)를 설치하고, Disk 0번에 Data 드라이브(D:)를 할당",
+    "description": "디스크 2개 장착 시 Disk 1번에 Windows11 및 부트로더(EFI)를 설치하고, Disk 0번에 Data 드라이브(D:)를 할당",
     "partitionScheme": "GPT",
     "autoApprove": true,
     "isSmartDynamic": true,
@@ -29,23 +29,6 @@
       "diskCountMax": 99,
       "targetDiskCriteria": "DISK_1_FIRST",
       "targetDiskIndex": 1,
-      "minCapacityGb": 0,
-      "maxCapacityGb": 99999
-    }
-  },
-  {
-    "id": "policy-dual-nvme-disk0-os",
-    "name": "듀얼 디스크: 0번 NVMe(OS) + 1번(Data)",
-    "description": "디스크 2개 장착 시 Disk 0번에 Windows11 및 부트로더(EFI)를 설치하고, Disk 1번에 Data 드라이브(D:)를 할당",
-    "partitionScheme": "GPT",
-    "autoApprove": true,
-    "isSmartDynamic": true,
-    "conditions": {
-      "modelPattern": "*",
-      "diskCountMin": 2,
-      "diskCountMax": 99,
-      "targetDiskCriteria": "DISK_0_FIRST",
-      "targetDiskIndex": 0,
       "minCapacityGb": 0,
       "maxCapacityGb": 99999
     }

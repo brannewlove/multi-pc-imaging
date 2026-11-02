@@ -206,15 +206,10 @@ namespace MultiDeployOS.Master.Forms
             btnTplHalf512.Margin = new Padding(3);
             btnTplHalf512.Click += (s, e) => ApplyTemplateHalf512();
 
-            var btnTplDualDisk1 = CreateButton("⭐ [듀얼] Disk 1: OS / Disk 0: Data", Color.FromArgb(124, 58, 237));
+            var btnTplDualDisk1 = CreateButton("⭐ [듀얼 NVMe] Disk 1: OS / Disk 0: Data", Color.FromArgb(124, 58, 237));
             btnTplDualDisk1.Dock = DockStyle.Fill;
             btnTplDualDisk1.Margin = new Padding(3);
             btnTplDualDisk1.Click += (s, e) => ApplyTemplateDualDisk1();
-
-            var btnTplDualDisk0 = CreateButton("[듀얼] Disk 0: OS / Disk 1: Data", Color.FromArgb(109, 40, 217));
-            btnTplDualDisk0.Dock = DockStyle.Fill;
-            btnTplDualDisk0.Margin = new Padding(3);
-            btnTplDualDisk0.Click += (s, e) => ApplyTemplateDualDisk0();
 
             var btnTplSmart = CreateButton("⚡ [지능형] 디스크 자동 감지 (Smart)", Color.FromArgb(5, 150, 105));
             btnTplSmart.Dock = DockStyle.Fill;
@@ -225,7 +220,7 @@ namespace MultiDeployOS.Master.Forms
             tblTemplate.Controls.Add(btnTplOver512, 1, 0);
             tblTemplate.Controls.Add(btnTplHalf512, 2, 0);
             tblTemplate.Controls.Add(btnTplDualDisk1, 0, 1);
-            tblTemplate.Controls.Add(btnTplDualDisk0, 1, 1);
+            tblTemplate.SetColumnSpan(btnTplDualDisk1, 2);
             tblTemplate.Controls.Add(btnTplSmart, 2, 1);
             grpTemplate.Controls.Add(tblTemplate);
 
@@ -445,27 +440,6 @@ namespace MultiDeployOS.Master.Forms
                 _currentSelected.Conditions.DiskCountMin = 2;
                 _currentSelected.Conditions.TargetDiskCriteria = "DISK_1_FIRST";
                 _currentSelected.Conditions.TargetDiskIndex = 1;
-            }
-        }
-
-        private void ApplyTemplateDualDisk0()
-        {
-            _cboScheme.SelectedItem = "GPT";
-            _cboDiskCriteria.SelectedIndex = 2; // DISK_0_FIRST
-            _txtCommands.Text = string.Join(Environment.NewLine, new[]
-            {
-                "select disk 0", "clean", "convert gpt",
-                "create partition efi size=100", "format quick fs=fat32 label=System", "assign letter=S",
-                "create partition msr size=16",
-                "create partition primary", "format quick fs=ntfs label=Windows11", "assign letter=W",
-                "select disk 1", "clean", "convert gpt",
-                "create partition primary", "format quick fs=ntfs label=Data", "assign letter=D"
-            });
-            if (_currentSelected != null)
-            {
-                _currentSelected.Conditions.DiskCountMin = 2;
-                _currentSelected.Conditions.TargetDiskCriteria = "DISK_0_FIRST";
-                _currentSelected.Conditions.TargetDiskIndex = 0;
             }
         }
 
