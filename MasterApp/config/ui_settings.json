@@ -2,6 +2,7 @@
   "viewMode": "TABLE",
   "tableConfig": {
     "order": [
+      "no",
       "status",
       "ip",
       "model",
@@ -16,6 +17,7 @@
     ],
     "hidden": [],
     "widths": {
+      "no": 55,
       "status": 136,
       "ip": 120,
       "model": 160,
@@ -32,6 +34,7 @@
   },
   "historyTableConfig": {
     "order": [
+      "no",
       "time",
       "status",
       "model",
@@ -44,6 +47,7 @@
     ],
     "hidden": [],
     "widths": {
+      "no": 55,
       "time": 192,
       "status": 90,
       "model": 261,

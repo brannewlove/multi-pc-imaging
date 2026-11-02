@@ -85,7 +85,7 @@ namespace MultiDeployOS.Master.Models
         [JsonPropertyName("order")]
         public List<string> Order { get; set; } = new()
         {
-            "status", "ip", "model", "serial", "mac", "disks", "policy", "image", "progress", "duration", "action"
+            "no", "status", "ip", "model", "serial", "mac", "disks", "policy", "image", "progress", "duration", "action"
         };
 
         [JsonPropertyName("hidden")]
@@ -94,6 +94,7 @@ namespace MultiDeployOS.Master.Models
         [JsonPropertyName("widths")]
         public Dictionary<string, int> Widths { get; set; } = new()
         {
+            ["no"] = 55,
             ["status"] = 110,
             ["ip"] = 120,
             ["model"] = 180,
@@ -116,7 +117,7 @@ namespace MultiDeployOS.Master.Models
         [JsonPropertyName("order")]
         public List<string> Order { get; set; } = new()
         {
-            "time", "status", "model", "serial", "mac", "policy", "image", "duration", "error"
+            "no", "time", "status", "model", "serial", "mac", "policy", "image", "duration", "error"
         };
 
         [JsonPropertyName("hidden")]
@@ -125,6 +126,7 @@ namespace MultiDeployOS.Master.Models
         [JsonPropertyName("widths")]
         public Dictionary<string, int> Widths { get; set; } = new()
         {
+            ["no"] = 55,
             ["time"] = 140,
             ["status"] = 90,
             ["model"] = 160,

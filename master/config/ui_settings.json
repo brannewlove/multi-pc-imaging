@@ -2,6 +2,7 @@
   "viewMode": "TABLE",
   "tableConfig": {
     "order": [
+      "no",
       "status",
       "ip",
       "model",
@@ -16,7 +17,8 @@
     ],
     "hidden": [],
     "widths": {
-      "status": 100,
+      "no": 55,
+      "status": 136,
       "ip": 120,
       "model": 160,
       "serial": 130,
@@ -27,6 +29,34 @@
       "progress": 200,
       "duration": 90,
       "action": 120
+    },
+    "sort": null
+  },
+  "historyTableConfig": {
+    "order": [
+      "no",
+      "time",
+      "status",
+      "model",
+      "serial",
+      "mac",
+      "policy",
+      "image",
+      "duration",
+      "error"
+    ],
+    "hidden": [],
+    "widths": {
+      "no": 55,
+      "time": 192,
+      "status": 90,
+      "model": 261,
+      "serial": 252,
+      "mac": 130,
+      "policy": 305,
+      "image": 253,
+      "duration": 90,
+      "error": 200
     },
     "sort": null
   }

@@ -662,6 +662,11 @@ namespace MultiDeployOS.Master.Forms
             _gridClients.AlternatingRowsDefaultCellStyle.ForeColor = Color.White;
 
             // 기본 컬럼 정의
+            AddGridColumn("no", "순번", 55);
+            _gridClients.Columns["no"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            _gridClients.Columns["no"].HeaderCell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            _gridClients.Columns["no"].DefaultCellStyle.ForeColor = Color.FromArgb(148, 163, 184);
+
             AddGridColumn("status", "배포 상태", 110);
             AddGridColumn("ip", "IP 주소", 120);
             AddGridColumn("model", "제조사 / 모델명", 180);
@@ -799,6 +804,10 @@ namespace MultiDeployOS.Master.Forms
             _gridHistory.Columns.Add("duration", "소요 시간");
             _gridHistory.Columns.Add("error", "비고 (에러 내용)");
 
+            _gridHistory.Columns["no"].Width = 55;
+            _gridHistory.Columns["no"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            _gridHistory.Columns["no"].HeaderCell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            _gridHistory.Columns["no"].DefaultCellStyle.ForeColor = Color.FromArgb(148, 163, 184);
             _gridHistory.Columns["time"].Width = 140;
             _gridHistory.Columns["status"].Width = 90;
             _gridHistory.Columns["model"].Width = 160;
@@ -1435,6 +1444,7 @@ namespace MultiDeployOS.Master.Forms
 
             Func<ClientSession, object?> keySelector = colName switch
             {
+                "no" => s => s.SessionId,
                 "status" => s => s.Status,
                 "ip" => s => s.IpAddress,
                 "model" => s => $"{s.System.Manufacturer} {s.System.ModelName}",
@@ -1591,6 +1601,16 @@ namespace MultiDeployOS.Master.Forms
                 if (existingRowMap.TryGetValue(s.SessionId, out var existingRow))
                 {
                     // 기존 행 내용만 수정하여 깜빡임 및 포커스 손실 방지
+                    // 정렬 또는 필터에 의해 위치가 변경된 경우 물리적 행 인덱스 재배치 (정렬 순서 완벽 보장)
+                    int currentIdx = existingRow.Index;
+                    if (currentIdx != i && currentIdx >= 0 && i < _gridClients.Rows.Count)
+                    {
+                        _gridClients.Rows.RemoveAt(currentIdx);
+                        _gridClients.Rows.Insert(i, existingRow);
+                    }
+
+                    // 기존 행 내용 및 순번 갱신
+                    SetCellText(existingRow.Cells["no"], (i + 1).ToString());
                     SetCellText(existingRow.Cells["status"], statusText);
                     SetCellText(existingRow.Cells["ip"], s.IpAddress);
                     SetCellText(existingRow.Cells["model"], $"{s.System.Manufacturer} {s.System.ModelName}".Trim());
@@ -1616,6 +1636,7 @@ namespace MultiDeployOS.Master.Forms
                 else
                 {
                     int rowIdx = _gridClients.Rows.Add(
+                        (i + 1).ToString(),
                         statusText,
                         s.IpAddress,
                         $"{s.System.Manufacturer} {s.System.ModelName}".Trim(),
@@ -1631,6 +1652,11 @@ namespace MultiDeployOS.Master.Forms
 
                     var newRow = _gridClients.Rows[rowIdx];
                     newRow.Tag = s;
+                    if (rowIdx != i && i < _gridClients.Rows.Count)
+                    {
+                        _gridClients.Rows.RemoveAt(rowIdx);
+                        _gridClients.Rows.Insert(i, newRow);
+                    }
                     newRow.Cells["status"].Style.ForeColor = statusColor;
                     newRow.Cells["image"].Style.ForeColor = imageColor;
                 }
@@ -1693,9 +1719,11 @@ namespace MultiDeployOS.Master.Forms
             }
 
             _gridHistory.Rows.Clear();
+            int histNo = 1;
             foreach (var h in _configManager.History.Take(100))
             {
                 int rowIndex = _gridHistory.Rows.Add(
+                    (histNo++).ToString(),
                     h.CompletedAt,
                     h.Status == "SUCCESS" ? "성공" : "실패",
                     h.ModelName,
@@ -1788,6 +1816,19 @@ namespace MultiDeployOS.Master.Forms
 
             var col = _gridClients.Columns[e.ColumnIndex];
             if (col.Name == "action") return;
+
+            if (col.Name == "no")
+            {
+                // 순번 헤더 클릭 시 기본 정렬(해제)로 복귀
+                _sortColumn = null;
+                _sortOrder = SortOrder.None;
+                foreach (DataGridViewColumn c in _gridClients.Columns)
+                {
+                    c.HeaderCell.SortGlyphDirection = SortOrder.None;
+                }
+                RefreshGridRows();
+                return;
+            }
 
             // 정렬 방향 토글 (오름차순 -> 내림차순 -> 해제)
             if (_sortColumn == col.Name)
