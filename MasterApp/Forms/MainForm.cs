@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -1350,6 +1350,8 @@ namespace MultiDeployOS.Master.Forms
                 if (session.Status == "SUCCESS")
                 {
                     _pxeCoordinator.MarkMacDeployCompleted(session.Network.PrimaryMac);
+                    // ?붾튃 ?꾨즺 ???덈룄??遺????遺덊븘?뷀븳 DHCP ?꾨? ?먮룞 ?댁젣 (IP ? 利됱떆 諛섑솚)
+                    _pxeCoordinator.ReleaseDhcpLease(session.Network.PrimaryMac);
                 }
 
                 RefreshGridRows();

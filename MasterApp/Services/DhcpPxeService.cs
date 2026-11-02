@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -56,6 +56,7 @@ namespace MultiDeployOS.Master.Services
 
         public event Action<DhcpBootEventArgs>? ClientBootStageChanged;
         public event Action<string>? LogAdded;
+        public event Action? LeaseListChanged;
 
         public bool IsRunning => _dhcpSocket != null;
 
@@ -505,6 +506,40 @@ namespace MultiDeployOS.Master.Services
                 ExpiresAt = DateTime.Now.AddSeconds(_leaseSeconds),
                 Stage = stage
             };
+            LeaseListChanged?.Invoke();
+        }
+
+        public bool ReleaseLeaseByMac(string? macAddress)
+        {
+            string norm = NetworkUtility.NormalizeMac(macAddress);
+            if (string.IsNullOrEmpty(norm)) return false;
+
+            lock (_leaseLock)
+            {
+                if (LeasesByMac.TryRemove(norm, out var lease))
+                {
+                    if (NetworkUtility.TryIpToUint(lease.IpAddress, out uint ipUint))
+                    {
+                        _ipToMac.TryRemove(ipUint, out _);
+                    }
+                    Log($"[DHCP] ?꾨? ?댁젣(諛섑솚 ?꾨즺): {lease.IpAddress} ({norm})");
+                    LeaseListChanged?.Invoke();
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public void ClearAllLeases()
+        {
+            lock (_leaseLock)
+            {
+                LeasesByMac.Clear();
+                _ipToMac.Clear();
+                _declinedIps.Clear();
+            }
+            Log("[DHCP] ?꾩껜 ?쒖꽦 DHCP ?꾨? 紐⑸줉??珥덇린?붾릺?덉뒿?덈떎.");
+            LeaseListChanged?.Invoke();
         }
 
         private byte[] BuildReplyPacket(

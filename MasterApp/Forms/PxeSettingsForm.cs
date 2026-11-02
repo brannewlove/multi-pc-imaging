@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -57,6 +57,7 @@ namespace MultiDeployOS.Master.Forms
 
             _pxeCoordinator.LogAdded += OnCoordinatorLogAdded;
             _pxeCoordinator.RunningStateChanged += OnRunningStateChanged;
+            _pxeCoordinator.DhcpService.LeaseListChanged += OnDhcpLeaseListChanged;
 
             _refreshTimer = new System.Windows.Forms.Timer { Interval = 1500 };
             _refreshTimer.Tick += (s, e) => RefreshLeasesGrid();
@@ -886,6 +887,16 @@ namespace MultiDeployOS.Master.Forms
             RefreshServerStateUi();
         }
 
+        private void OnDhcpLeaseListChanged()
+        {
+            if (this.IsDisposed || !this.IsHandleCreated) return;
+            this.BeginInvoke(new Action(() =>
+            {
+                if (this.IsDisposed) return;
+                RefreshLeasesGrid();
+            }));
+        }
+
         private static Panel CreateSectionPanel(string title, int height)
         {
             var pnl = new Panel
@@ -953,6 +964,7 @@ namespace MultiDeployOS.Master.Forms
             _refreshTimer.Dispose();
             _pxeCoordinator.LogAdded -= OnCoordinatorLogAdded;
             _pxeCoordinator.RunningStateChanged -= OnRunningStateChanged;
+            _pxeCoordinator.DhcpService.LeaseListChanged -= OnDhcpLeaseListChanged;
             base.OnFormClosing(e);
         }
     }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -159,6 +159,30 @@ namespace MultiDeployOS.Master.Services
             {
                 _completedMacTimestamps.TryRemove(norm, out _);
             }
+        }
+
+        public void ReleaseDhcpLease(string? macAddress)
+        {
+            DhcpService.ReleaseLeaseByMac(macAddress);
+        }
+
+        public int ClearCompletedLeases()
+        {
+            int count = 0;
+            foreach (var mac in _completedMacTimestamps.Keys.ToList())
+            {
+                if (DhcpService.ReleaseLeaseByMac(mac))
+                {
+                    count++;
+                }
+            }
+            AppendLog($"[DHCP] 諛고룷 ?꾨즺 PC {count}???DHCP ?꾨?媛 ?뺣━?섏뿀?듬땲??");
+            return count;
+        }
+
+        public void ClearAllDhcpLeases()
+        {
+            DhcpService.ClearAllLeases();
         }
 
         public void ClearAllBootLoopGuards()
