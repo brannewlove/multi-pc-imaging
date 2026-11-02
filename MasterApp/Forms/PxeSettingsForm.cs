@@ -409,25 +409,65 @@ namespace MultiDeployOS.Master.Forms
                 Padding = new Padding(12)
             };
 
-            // 상단: DHCP 임대 목록
-            var pnlLeaseTop = new Panel { Dock = DockStyle.Top, Height = 34 };
+            // 상단: DHCP 임대 목록 (새로고침 및 임대 정리 버튼 추가)
+            var pnlLeaseTop = new Panel { Dock = DockStyle.Top, Height = 36 };
             var lblLeaseTitle = new Label
             {
                 Text = "📋 활성 DHCP IP 임대(Lease) 현황",
                 Font = new Font("맑은 고딕", 10f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(56, 189, 248),
                 AutoSize = true,
-                Location = new Point(2, 6)
+                Location = new Point(2, 8)
             };
-            var btnClearGuard = CreateButton("🔄 완료 PC 재부팅 우회 목록 초기화", Color.FromArgb(71, 85, 105));
-            btnClearGuard.Dock = DockStyle.Right;
+
+            var pnlLeaseButtons = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Right,
+                AutoSize = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Padding = new Padding(0, 3, 0, 0)
+            };
+
+            var btnRefreshLease = CreateButton("🔄 새로고침", Color.FromArgb(14, 165, 233));
+            btnRefreshLease.Height = 28;
+            btnRefreshLease.Click += (s, e) => RefreshLeasesGrid();
+
+            var btnClearCompletedLease = CreateButton("🧹 완료 PC 임대 반환", Color.FromArgb(234, 88, 12));
+            btnClearCompletedLease.Height = 28;
+            btnClearCompletedLease.Click += (s, e) =>
+            {
+                int count = _pxeCoordinator.ClearCompletedLeases();
+                RefreshLeasesGrid();
+                MessageBox.Show($"배포 완료된 PC {count}대의 DHCP 임대를 정상 반환(정리)했습니다.", "임대 정리 완료", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            };
+
+            var btnClearAllLease = CreateButton("🗑️ 전체 임대 초기화", Color.FromArgb(239, 68, 68));
+            btnClearAllLease.Height = 28;
+            btnClearAllLease.Click += (s, e) =>
+            {
+                if (MessageBox.Show("현재 모든 활성 DHCP IP 임대 목록을 강제로 초기화(반환)하시겠습니까?\n진행 중인 클라이언트가 없는 상태에서 권장됩니다.", "전체 초기화 확인", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                {
+                    _pxeCoordinator.DhcpService.ClearAllLeases();
+                    RefreshLeasesGrid();
+                }
+            };
+
+            var btnClearGuard = CreateButton("🔄 재부팅 우회 목록 초기화", Color.FromArgb(71, 85, 105));
             btnClearGuard.Height = 28;
             btnClearGuard.Click += (s, e) =>
             {
                 _pxeCoordinator.ClearAllBootLoopGuards();
+                RefreshLeasesGrid();
                 MessageBox.Show("배포 완료 PC 우회 목록이 초기화되었습니다. 이제 완료된 PC도 다시 PXE로 부팅할 수 있습니다.", "초기화 완료", MessageBoxButtons.OK, MessageBoxIcon.Information);
             };
-            pnlLeaseTop.Controls.Add(btnClearGuard);
+
+            pnlLeaseButtons.Controls.Add(btnRefreshLease);
+            pnlLeaseButtons.Controls.Add(btnClearCompletedLease);
+            pnlLeaseButtons.Controls.Add(btnClearAllLease);
+            pnlLeaseButtons.Controls.Add(btnClearGuard);
+
+            pnlLeaseTop.Controls.Add(pnlLeaseButtons);
             pnlLeaseTop.Controls.Add(lblLeaseTitle);
 
             _gridLeases = new DataGridView
@@ -455,6 +495,41 @@ namespace MultiDeployOS.Master.Forms
             _gridLeases.Columns.Add("stage", "최근 부팅 단계");
             _gridLeases.Columns.Add("guard", "재부팅 우회 보호");
             _gridLeases.Columns.Add("time", "할당 시각");
+
+            // 우클릭 컨텍스트 메뉴 바인딩
+            var leaseMenu = new ContextMenuStrip();
+            var itemRefresh = leaseMenu.Items.Add("🔄 지금 목록 새로고침");
+            itemRefresh.Click += (s, e) => RefreshLeasesGrid();
+
+            leaseMenu.Items.Add(new ToolStripSeparator());
+
+            var itemReleaseSelected = leaseMenu.Items.Add("⚡ 선택한 PC 임대 즉시 반환(해제)");
+            itemReleaseSelected.Click += (s, e) =>
+            {
+                if (_gridLeases.SelectedRows.Count > 0)
+                {
+                    var selectedRow = _gridLeases.SelectedRows[0];
+                    string? mac = selectedRow.Cells[0].Value?.ToString();
+                    string? ip = selectedRow.Cells[1].Value?.ToString();
+                    if (_pxeCoordinator.DhcpService.ReleaseLease(mac, ip))
+                    {
+                        RefreshLeasesGrid();
+                        MessageBox.Show($"[{mac}] {ip} 임대가 정상 반환되었습니다.", "임대 반환 완료", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                }
+            };
+
+            var itemClearAll = leaseMenu.Items.Add("🧹 전체 DHCP 임대 목록 초기화");
+            itemClearAll.Click += (s, e) =>
+            {
+                if (MessageBox.Show("전체 DHCP 임대 목록을 초기화하시겠습니까?", "확인", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                {
+                    _pxeCoordinator.DhcpService.ClearAllLeases();
+                    RefreshLeasesGrid();
+                }
+            };
+
+            _gridLeases.ContextMenuStrip = leaseMenu;
 
             split.Panel1.Controls.Add(_gridLeases);
             split.Panel1.Controls.Add(pnlLeaseTop);

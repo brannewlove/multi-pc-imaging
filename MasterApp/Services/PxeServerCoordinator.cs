@@ -161,9 +161,9 @@ namespace MultiDeployOS.Master.Services
             }
         }
 
-        public void ReleaseDhcpLease(string? macAddress)
+        public void ReleaseDhcpLease(string? macAddress, string? ipAddress = null)
         {
-            DhcpService.ReleaseLeaseByMac(macAddress);
+            DhcpService.ReleaseLease(macAddress, ipAddress);
         }
 
         public int ClearCompletedLeases()
@@ -176,7 +176,7 @@ namespace MultiDeployOS.Master.Services
                     count++;
                 }
             }
-            AppendLog($"[DHCP] 諛고룷 ?꾨즺 PC {count}???DHCP ?꾨?媛 ?뺣━?섏뿀?듬땲??");
+            AppendLog($"[DHCP] 배포 완료 PC {count}대의 DHCP 임대가 정리되었습니다.");
             return count;
         }
 

@@ -522,12 +522,39 @@ namespace MultiDeployOS.Master.Services
                     {
                         _ipToMac.TryRemove(ipUint, out _);
                     }
-                    Log($"[DHCP] ?꾨? ?댁젣(諛섑솚 ?꾨즺): {lease.IpAddress} ({norm})");
+                    Log($"[DHCP] 임대 해제(MAC 기준 반환): {lease.IpAddress} ({norm})");
                     LeaseListChanged?.Invoke();
                     return true;
                 }
             }
             return false;
+        }
+
+        public bool ReleaseLeaseByIp(string? ipAddress)
+        {
+            if (string.IsNullOrWhiteSpace(ipAddress)) return false;
+            string ipTrim = ipAddress.Trim();
+            lock (_leaseLock)
+            {
+                if (NetworkUtility.TryIpToUint(ipTrim, out uint ipUint))
+                {
+                    if (_ipToMac.TryRemove(ipUint, out string? mac))
+                    {
+                        LeasesByMac.TryRemove(mac, out _);
+                        Log($"[DHCP] 임대 해제(IP 기준 반환): {ipTrim} ({mac})");
+                        LeaseListChanged?.Invoke();
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        public bool ReleaseLease(string? macAddress, string? ipAddress = null)
+        {
+            bool byMac = ReleaseLeaseByMac(macAddress);
+            bool byIp = !string.IsNullOrEmpty(ipAddress) && ReleaseLeaseByIp(ipAddress);
+            return byMac || byIp;
         }
 
         public void ClearAllLeases()
@@ -538,7 +565,7 @@ namespace MultiDeployOS.Master.Services
                 _ipToMac.Clear();
                 _declinedIps.Clear();
             }
-            Log("[DHCP] ?꾩껜 ?쒖꽦 DHCP ?꾨? 紐⑸줉??珥덇린?붾릺?덉뒿?덈떎.");
+            Log("[DHCP] 전체 활성 DHCP 임대 목록이 초기화되었습니다.");
             LeaseListChanged?.Invoke();
         }
 

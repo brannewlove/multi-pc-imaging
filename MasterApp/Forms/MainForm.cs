@@ -1365,8 +1365,8 @@ namespace MultiDeployOS.Master.Forms
                 if (session.Status == "SUCCESS")
                 {
                     _pxeCoordinator.MarkMacDeployCompleted(session.Network.PrimaryMac);
-                    // ?붾튃 ?꾨즺 ???덈룄??遺????遺덊븘?뷀븳 DHCP ?꾨? ?먮룞 ?댁젣 (IP ? 利됱떆 諛섑솚)
-                    _pxeCoordinator.ReleaseDhcpLease(session.Network.PrimaryMac);
+                    // 더빙 완료 시 윈도우 부팅 후 불필요해진 DHCP 임대 자동 해제 (IP 풀 즉시 반환)
+                    _pxeCoordinator.ReleaseDhcpLease(session.Network.PrimaryMac, session.IpAddress);
                 }
 
                 RefreshGridRows();
