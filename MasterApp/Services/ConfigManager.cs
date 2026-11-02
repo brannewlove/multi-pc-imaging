@@ -147,6 +147,29 @@ namespace MultiDeployOS.Master.Services
                 }
             }
             catch (Exception ex) { Console.WriteLine("[-] ui_settings.json 로드 실패: " + ex.Message); }
+
+            // 구버전 설정 파일과의 호환성 및 순번(no) 컬럼 마이그레이션 보장
+            try
+            {
+                var tc = UiSettings.TableConfig ??= new TableConfig();
+                tc.Order ??= new List<string>();
+                tc.Order.Remove("no");
+                tc.Order.Insert(0, "no");
+                tc.Widths ??= new Dictionary<string, int>();
+                if (!tc.Widths.ContainsKey("no") || tc.Widths["no"] < 30)
+                    tc.Widths["no"] = 55;
+                tc.Hidden?.Remove("no");
+
+                var htc = UiSettings.HistoryTableConfig ??= new HistoryTableConfig();
+                htc.Order ??= new List<string>();
+                htc.Order.Remove("no");
+                htc.Order.Insert(0, "no");
+                htc.Widths ??= new Dictionary<string, int>();
+                if (!htc.Widths.ContainsKey("no") || htc.Widths["no"] < 30)
+                    htc.Widths["no"] = 55;
+                htc.Hidden?.Remove("no");
+            }
+            catch { }
         }
 
         public void SaveUiSettings()

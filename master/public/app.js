@@ -261,6 +261,7 @@ function handleWsMessage(event, data) {
 // 테이블 컬럼 메타데이터 및 설정 (순서, 숨김, 너비, 정렬 영구 유지)
 // ==========================================================================
 const COLUMNS_DEF = [
+    { id: 'no', label: '순번', minWidth: 45, defaultWidth: 55, sortable: false },
     { id: 'status', label: '상태', minWidth: 110, defaultWidth: 140, sortable: true },
     { id: 'model', label: '제조사 / 모델명', minWidth: 160, defaultWidth: 230, sortable: true },
     { id: 'serial', label: '시리얼 번호 (S/N)', minWidth: 120, defaultWidth: 150, sortable: true },
@@ -292,13 +293,20 @@ function loadTableConfig() {
         if (saved) {
             const parsed = JSON.parse(saved);
             const def = getDefaultTableConfig();
-            const validOrder = (parsed.order || []).filter(id => COLUMNS_DEF.some(c => c.id === id));
+            let validOrder = (parsed.order || []).filter(id => COLUMNS_DEF.some(c => c.id === id));
             COLUMNS_DEF.forEach(c => {
                 if (!validOrder.includes(c.id)) validOrder.push(c.id);
             });
+            const noIdx = validOrder.indexOf('no');
+            if (noIdx > 0) validOrder.splice(noIdx, 1);
+            if (!validOrder.includes('no')) {
+                validOrder.unshift('no');
+            } else if (validOrder[0] !== 'no') {
+                validOrder = ['no', ...validOrder.filter(x => x !== 'no')];
+            }
             return {
                 order: validOrder,
-                hidden: parsed.hidden || [],
+                hidden: (parsed.hidden || []).filter(id => id !== 'no'),
                 widths: { ...def.widths, ...(parsed.widths || {}) },
                 sort: parsed.sort !== undefined ? parsed.sort : def.sort
             };
@@ -692,7 +700,7 @@ function renderTableBody(clients) {
     const sorted = sortClients(clients);
     elClientsTableBody.innerHTML = '';
 
-    sorted.forEach(c => {
+    sorted.forEach((c, idx) => {
         const tr = document.createElement('tr');
         tr.className = `client-row row-${(c.status || 'ready').toLowerCase()}`;
         tr.id = `trow-${c.sessionId}`;
@@ -737,6 +745,10 @@ function renderTableBody(clients) {
             td.style.width = `${curWidth}px`;
 
             switch (col.id) {
+                case 'no':
+                    td.innerHTML = `<span style="font-weight:600;color:var(--text-muted);display:inline-block;width:100%;text-align:center;">${idx + 1}</span>`;
+                    break;
+
                 case 'status':
                     td.innerHTML = `
                         <span class="status-badge ${badgeClass}" id="tbadge-${c.sessionId}">
@@ -984,7 +996,7 @@ function renderHistoryTable() {
     if (deployHistory.length === 0) {
         elHistoryBody.innerHTML = `
             <tr>
-                <td colspan="9" style="text-align:center;padding:40px;color:var(--text-dim);">
+                <td colspan="10" style="text-align:center;padding:40px;color:var(--text-dim);">
                     아직 완료된 배포 작업 이력이 없습니다.
                 </td>
             </tr>
@@ -992,7 +1004,7 @@ function renderHistoryTable() {
         return;
     }
 
-    deployHistory.forEach(h => {
+    deployHistory.forEach((h, idx) => {
         const tr = document.createElement('tr');
         const dt = new Date(h.completedAt).toLocaleString();
         const isSuccess = h.status === 'SUCCESS';
@@ -1001,6 +1013,7 @@ function renderHistoryTable() {
             : '<span class="status-badge badge-failed">실패</span>';
 
         tr.innerHTML = `
+            <td style="text-align:center;font-weight:600;color:var(--text-muted);width:55px;">${idx + 1}</td>
             <td style="font-size:0.8rem;color:var(--text-muted);">${dt}</td>
             <td>${badge}</td>
             <td style="font-weight:600;">${escapeHtml(h.modelName || '-')}</td>

@@ -33,10 +33,10 @@ let serverConfig = {
 let uiSettings = {
     viewMode: "TABLE",
     tableConfig: {
-        order: ["status", "ip", "model", "serial", "mac", "disks", "policy", "image", "progress", "duration", "action"],
+        order: ["no", "status", "ip", "model", "serial", "mac", "disks", "policy", "image", "progress", "duration", "action"],
         hidden: [],
         widths: {
-            status: 100, ip: 120, model: 160, serial: 130, mac: 130,
+            no: 55, status: 100, ip: 120, model: 160, serial: 130, mac: 130,
             disks: 170, policy: 170, image: 180, progress: 200, duration: 90, action: 120
         },
         sort: null
@@ -101,6 +101,14 @@ function loadConfigs() {
     try {
         if (fs.existsSync(PATH_UI_SETTINGS)) {
             uiSettings = { ...uiSettings, ...JSON.parse(fs.readFileSync(PATH_UI_SETTINGS, 'utf-8')) };
+            if (uiSettings.tableConfig && uiSettings.tableConfig.order) {
+                const order = uiSettings.tableConfig.order;
+                const idx = order.indexOf('no');
+                if (idx > 0) order.splice(idx, 1);
+                if (!order.includes('no')) order.unshift('no');
+                if (!uiSettings.tableConfig.widths) uiSettings.tableConfig.widths = {};
+                if (!uiSettings.tableConfig.widths.no) uiSettings.tableConfig.widths.no = 55;
+            }
         }
     } catch (e) {
         console.error('[-] UI 레이아웃 설정 로드 오류:', e.message);

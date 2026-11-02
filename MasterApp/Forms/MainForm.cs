@@ -794,6 +794,7 @@ namespace MultiDeployOS.Master.Forms
             _gridHistory.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(20, 29, 48);
             _gridHistory.AlternatingRowsDefaultCellStyle.ForeColor = Color.White;
 
+            _gridHistory.Columns.Add("no", "순번");
             _gridHistory.Columns.Add("time", "완료 일시");
             _gridHistory.Columns.Add("status", "상태");
             _gridHistory.Columns.Add("model", "모델명");
@@ -924,9 +925,11 @@ namespace MultiDeployOS.Master.Forms
                     col.Visible = !liveHidden.Contains(col.Name);
                 }
 
-                // 3. 컬럼 표시 순서 복원
+                // 3. 컬럼 표시 순서 복원 (순번은 항상 첫 번째 열 보정)
                 if (tc.Order != null && tc.Order.Count > 0)
                 {
+                    tc.Order.Remove("no");
+                    tc.Order.Insert(0, "no");
                     int displayIndex = 0;
                     foreach (var colName in tc.Order)
                     {
@@ -935,6 +938,11 @@ namespace MultiDeployOS.Master.Forms
                             _gridClients.Columns[colName].DisplayIndex = Math.Min(displayIndex++, _gridClients.Columns.Count - 1);
                         }
                     }
+                }
+                if (_gridClients.Columns.Contains("no"))
+                {
+                    _gridClients.Columns["no"].DisplayIndex = 0;
+                    _gridClients.Columns["no"].Visible = true;
                 }
             }
             finally
@@ -975,6 +983,8 @@ namespace MultiDeployOS.Master.Forms
 
                 if (htc.Order != null && htc.Order.Count > 0)
                 {
+                    htc.Order.Remove("no");
+                    htc.Order.Insert(0, "no");
                     int displayIndex = 0;
                     foreach (var colName in htc.Order)
                     {
@@ -983,6 +993,11 @@ namespace MultiDeployOS.Master.Forms
                             _gridHistory.Columns[colName].DisplayIndex = Math.Min(displayIndex++, _gridHistory.Columns.Count - 1);
                         }
                     }
+                }
+                if (_gridHistory.Columns.Contains("no"))
+                {
+                    _gridHistory.Columns["no"].DisplayIndex = 0;
+                    _gridHistory.Columns["no"].Visible = true;
                 }
             }
             finally
