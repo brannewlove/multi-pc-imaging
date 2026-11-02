@@ -9,6 +9,11 @@ echo  [MultiDeployOS] Building Windows Native C# Master App (.NET 8)
 echo ================================================================
 echo.
 
+:: 1. 실행 중인 기존 마스터 프로세스가 있으면 자동 종료 (파일 잠금 에러 방지)
+echo [INFO] 실행 중인 기존 마스터 앱 확인 및 종료...
+taskkill /F /IM MultiDeployMaster.exe >nul 2>nul
+timeout /t 1 /nobreak >nul
+
 set "DOTNET_CMD=dotnet"
 where dotnet >nul 2>nul
 if errorlevel 1 (
@@ -35,7 +40,9 @@ echo.
 "!DOTNET_CMD!" publish "MasterApp\MasterApp.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "bin"
 if errorlevel 1 (
     echo.
-    echo [ERROR] Build failed.
+    echo ================================================================
+    echo  [ERROR] 빌드에 실패했습니다! 위 에러 메시지를 확인하세요.
+    echo ================================================================
     pause
     exit /b 1
 )
@@ -66,4 +73,7 @@ echo  [SUCCESS] Native Master App built successfully!
 echo  Output: %~dp0bin\MultiDeployMaster.exe
 echo ================================================================
 echo.
+echo [안내] 아무 키나 누르면 빌드된 최신 마스터 앱을 바로 실행합니다.
+pause >nul
+start "" "%~dp0bin\MultiDeployMaster.exe"
 endlocal
