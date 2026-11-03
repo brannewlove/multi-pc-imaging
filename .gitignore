@@ -31,3 +31,6 @@ client/build/.ninja_log
 *.log
 
 
+tools/**/bin/
+tools/**/obj/
+tools/**/dist/
