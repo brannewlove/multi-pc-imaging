@@ -614,8 +614,10 @@ int main(int argc, char* argv[]) {
                             if (rLoad == 0) {
                                 std::string addCmd = "reg.exe add \"HKLM\\OFFLINE_SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce\" /v \"CJAutoProvisioner\" /t REG_SZ /d \"\\\"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\\\"\" /f >nul 2>&1";
                                 system(addCmd.c_str());
+                                // UAC 보안창(사용자 계정 컨트롤) 무인 자동 승격을 위해 프롬프트 임시 비활성화 (0 = 확인 대화상자 없이 즉시 관리자 권한 승격 실행)
+                                system("reg.exe add \"HKLM\\OFFLINE_SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\" /v \"ConsentPromptBehaviorAdmin\" /t REG_DWORD /d 0 /f >nul 2>&1");
                                 system("reg.exe unload HKLM\\OFFLINE_SOFTWARE >nul 2>&1");
-                                std::cout << "  [+] 오프라인 레지스트리(RunOnce) 1회성 자동실행 등록 완료!\n";
+                                std::cout << "  [+] 오프라인 레지스트리(RunOnce 및 UAC 무인 자동승격) 등록 완료!\n";
                             }
                         }
 

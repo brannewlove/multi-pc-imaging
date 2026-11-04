@@ -189,13 +189,15 @@ namespace CJAutoProvisioner
                     Log("[WARNING] 제한 시간 내 버튼을 감지하지 못했습니다. (창이 이미 완료되었거나 UI 구조가 변경되었을 수 있습니다.)");
                 }
 
-                Log("[Step 5] 프로비저너 정상 완료. 2초 후 자체 자동 삭제(Self-Delete)를 수행합니다.");
+                Log("[Step 5] 프로비저너 정상 완료. UAC 보안 정책 복원 및 자체 자동 삭제(Self-Delete)를 수행합니다.");
+                RestoreUacPolicy();
                 TriggerSelfDelete(currentExePath, info.FoundPath);
                 return 0;
             }
             catch (Exception ex)
             {
                 Log(string.Format("[FATAL ERROR] 예외 발생: {0}\n{1}", ex.Message, ex.StackTrace));
+                RestoreUacPolicy();
                 TriggerSelfDelete(currentExePath, null);
                 return 1;
             }
@@ -390,7 +392,8 @@ namespace CJAutoProvisioner
                 {
                     FileName = exePath,
                     WorkingDirectory = workDir,
-                    UseShellExecute = true
+                    UseShellExecute = true,
+                    Verb = "runas"
                 };
 
                 Process proc = Process.Start(psi);
@@ -574,6 +577,29 @@ namespace CJAutoProvisioner
                 catch
                 {
                 }
+            }
+        }
+
+
+        // ==========================================
+        // [UAC 보안 정책 기본값(5) 자동 복원]
+        // ==========================================
+        private static void RestoreUacPolicy()
+        {
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System", true))
+                {
+                    if (key != null)
+                    {
+                        key.SetValue("ConsentPromptBehaviorAdmin", 5, Microsoft.Win32.RegistryValueKind.DWord);
+                        Log("[UAC RESTORE] 사용자 계정 컨트롤(UAC) 보안 프롬프트 설정을 기본값(5)으로 안전하게 복원했습니다.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log(string.Format("[WARNING] UAC 설정 복원 중 예외: {0}", ex.Message));
             }
         }
 
