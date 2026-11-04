@@ -381,27 +381,43 @@ namespace MultiDeployOS.Master.Services
 
             Directory.CreateDirectory(mountDir);
 
+            string? provPath = ResolveProvisionerExecutablePath();
             var sb = new StringBuilder();
             sb.AppendLine("@echo off");
+            sb.AppendLine("setlocal enabledelayedexpansion");
             sb.AppendLine("chcp 65001 >nul");
-            sb.AppendLine($"echo [1/3] Mounting WinPE WIM: \"{wimPath}\" ... > \"{logFile}\"");
-            sb.AppendLine($"dism /Mount-Image /ImageFile:\"{wimPath}\" /Index:1 /MountDir:\"{mountDir}\" >> \"{logFile}\" 2>&1");
-            sb.AppendLine("if errorlevel 1 exit /b 10");
-            sb.AppendLine($"echo [2/3] Injecting PeImagingAgent.exe and startnet.cmd ... >> \"{logFile}\"");
-            sb.AppendLine($"copy /y \"{agentPath}\" \"{mountDir}\\Windows\\System32\\PeImagingAgent.exe\" >> \"{logFile}\" 2>&1");
-            sb.AppendLine("if errorlevel 1 (");
-            sb.AppendLine($"    dism /Unmount-Image /MountDir:\"{mountDir}\" /Discard >> \"{logFile}\" 2>&1");
-            sb.AppendLine("    exit /b 20");
-            sb.AppendLine(")");
-            sb.AppendLine($"copy /y \"{startnetPath}\" \"{mountDir}\\Windows\\System32\\startnet.cmd\" >> \"{logFile}\" 2>&1");
-            string? provPath = ResolveProvisionerExecutablePath();
+            sb.AppendLine($"echo ======================================================== >> \"{logFile}\"");
+            sb.AppendLine($"echo [MultiDeploy] WinPE DISM Auto-Injector Starting >> \"{logFile}\"");
+            sb.AppendLine($"echo Target WIM: \"{wimPath}\" >> \"{logFile}\"");
+            sb.AppendLine($"echo ======================================================== >> \"{logFile}\"");
+            sb.AppendLine("set PATCHED_COUNT=0");
+            sb.AppendLine("for /L %%i in (1,1,4) do (");
+            sb.AppendLine($"    echo [Index %%i] Mounting ... >> \"{logFile}\"");
+            sb.AppendLine($"    dism /Mount-Image /ImageFile:\"{wimPath}\" /Index:%%i /MountDir:\"{mountDir}\" >> \"{logFile}\" 2>&1");
+            sb.AppendLine("    if not errorlevel 1 (");
+            sb.AppendLine($"        echo [Index %%i] Injecting PeImagingAgent.exe and startnet.cmd ... >> \"{logFile}\"");
+            sb.AppendLine($"        copy /y \"{agentPath}\" \"{mountDir}\\Windows\\System32\\PeImagingAgent.exe\" >> \"{logFile}\" 2>&1");
+            sb.AppendLine($"        copy /y \"{startnetPath}\" \"{mountDir}\\Windows\\System32\\startnet.cmd\" >> \"{logFile}\" 2>&1");
             if (!string.IsNullOrEmpty(provPath) && File.Exists(provPath))
             {
-                sb.AppendLine($"copy /y \"{provPath}\" \"{mountDir}\\Windows\\System32\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
+                sb.AppendLine($"        copy /y \"{provPath}\" \"{mountDir}\\Windows\\System32\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
             }
-            sb.AppendLine($"echo [3/3] Saving & Unmounting boot.wim ... >> \"{logFile}\"");
-            sb.AppendLine($"dism /Unmount-Image /MountDir:\"{mountDir}\" /Commit >> \"{logFile}\" 2>&1");
-            sb.AppendLine("if errorlevel 1 exit /b 30");
+            sb.AppendLine($"        echo [Index %%i] Committing changes ... >> \"{logFile}\"");
+            sb.AppendLine($"        dism /Unmount-Image /MountDir:\"{mountDir}\" /Commit >> \"{logFile}\" 2>&1");
+            sb.AppendLine("        set /a PATCHED_COUNT+=1");
+            sb.AppendLine("    ) else (");
+            sb.AppendLine($"        echo [Index %%i] Not present or skipped. >> \"{logFile}\"");
+            sb.AppendLine("    )");
+            sb.AppendLine(")");
+            sb.AppendLine($"for %%P in (\"{wimPath}\") do set WIM_DRIVE=%%~dP");
+            sb.AppendLine($"if exist \"!WIM_DRIVE!\\agent\\\" copy /y \"{agentPath}\" \"!WIM_DRIVE!\\agent\\PeImagingAgent.exe\" >> \"{logFile}\" 2>&1");
+            sb.AppendLine($"if exist \"!WIM_DRIVE!\\\" copy /y \"{agentPath}\" \"!WIM_DRIVE!\\PeImagingAgent.exe\" >> \"{logFile}\" 2>&1");
+            if (!string.IsNullOrEmpty(provPath) && File.Exists(provPath))
+            {
+                sb.AppendLine($"if exist \"!WIM_DRIVE!\\agent\\\" copy /y \"{provPath}\" \"!WIM_DRIVE!\\agent\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
+                sb.AppendLine($"if exist \"!WIM_DRIVE!\\\" copy /y \"{provPath}\" \"!WIM_DRIVE!\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
+            }
+            sb.AppendLine("if !PATCHED_COUNT! EQU 0 exit /b 10");
             sb.AppendLine("exit /b 0");
 
             await File.WriteAllTextAsync(cmdFile, sb.ToString(), new UTF8Encoding(false));
@@ -455,7 +471,7 @@ namespace MultiDeployOS.Master.Services
                         var provFi = new FileInfo(provPath);
                         provInfo = $"\n- 사후 프로비저너: {provFi.Name} (수정일: {provFi.LastWriteTime:yyyy-MM-dd HH:mm:ss}, {provFi.Length / 1024} KB)";
                     }
-                    return (true, $"boot.wim에 최신 에이전트 및 자동 실행 startnet.cmd 주입이 완료되었습니다!\n\n" +
+                    return (true, $"boot.wim 내부의 모든 이미지(Index 1~N) 및 드라이브에 최신 에이전트 주입이 완료되었습니다!\n\n" +
                                   $"[주입된 최신 에셋 정보]\n" +
                                   $"- 클라이언트 에이전트: {agentFi.Name} (수정일: {agentFi.LastWriteTime:yyyy-MM-dd HH:mm:ss}, {agentFi.Length / 1024} KB){provInfo}\n\n" +
                                   $"대상 파일: {wimPath}");
