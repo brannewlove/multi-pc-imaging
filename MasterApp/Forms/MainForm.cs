@@ -765,6 +765,21 @@ namespace MultiDeployOS.Master.Forms
             _gridClients.Columns["no"].DefaultCellStyle.ForeColor = Color.FromArgb(148, 163, 184);
 
             AddGridColumn("status", "배포 상태", 110);
+
+            // [신규] 무인 프로비저너 자동화 활성화 여부 체크박스 컬럼 (기본 활성)
+            var colAuto = new DataGridViewCheckBoxColumn
+            {
+                Name = "auto_provision",
+                HeaderText = "자동화",
+                Width = 65,
+                FlatStyle = FlatStyle.Flat,
+                ThreeState = false,
+                ToolTipText = "무인 사후 프로비저너 자동화 활성화 여부 (체크 시 활성)"
+            };
+            colAuto.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            colAuto.HeaderCell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            _gridClients.Columns.Add(colAuto);
+
             AddGridColumn("cjid", "CJ_ID (사번)", 125, readOnly: false);
             _gridClients.Columns["cjid"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             _gridClients.Columns["cjid"].HeaderCell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
@@ -777,7 +792,7 @@ namespace MultiDeployOS.Master.Forms
             AddGridColumn("disks", "디스크 사양", 180);
             AddGridColumn("policy", "적용 파티션 양식", 180);
             AddGridColumn("image", "적용 WIM 이미지", 210);
-            AddGridColumn("progress", "배포 진행 상태", 220);
+            AddGridColumn("progress", "배포 진행 상태", 230);
             AddGridColumn("duration", "경과 시간", 100);
 
             var colAction = new DataGridViewButtonColumn
@@ -791,6 +806,33 @@ namespace MultiDeployOS.Master.Forms
 
             // 이벤트 바인딩
             _gridClients.CellContentClick += GridClients_CellContentClick;
+            _gridClients.CurrentCellDirtyStateChanged += (s, e) =>
+            {
+                // 체크박스 클릭 즉시 커밋되어 CellValueChanged 이벤트 발생 유도
+                if (_gridClients.IsCurrentCellDirty && _gridClients.CurrentCell is DataGridViewCheckBoxCell)
+                {
+                    _gridClients.CommitEdit(DataGridViewDataErrorContexts.Commit);
+                }
+            };
+            _gridClients.CellValueChanged += (s, e) =>
+            {
+                if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && _gridClients.Columns[e.ColumnIndex].Name == "auto_provision")
+                {
+                    var row = _gridClients.Rows[e.RowIndex];
+                    if (row.Tag is ClientSession session)
+                    {
+                        bool isChecked = Convert.ToBoolean(row.Cells["auto_provision"].Value);
+                        session.IsProvisionerEnabled = isChecked;
+
+                        // 사번 글자 색상 및 UI 즉시 동기화
+                        Color cjIdColor = session.IsProvisionerEnabled
+                            ? (string.IsNullOrWhiteSpace(session.CjId) ? Color.FromArgb(203, 213, 225) : Color.FromArgb(56, 189, 248))
+                            : Color.FromArgb(100, 116, 139);
+                        row.Cells["cjid"].Style.ForeColor = cjIdColor;
+                    }
+                }
+            };
+            _gridClients.CellPainting += GridClients_CellPainting; // [신규] 전체 진행도 직관적 막대표시
             _gridClients.CellEndEdit += (s, e) =>
             {
                 if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && _gridClients.Columns[e.ColumnIndex].Name == "cjid")
@@ -822,7 +864,18 @@ namespace MultiDeployOS.Master.Forms
                 if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
                 {
                     string colName = _gridClients.Columns[e.ColumnIndex].Name;
-                    if (colName == "cjid")
+                    if (colName == "auto_provision")
+                    {
+                        // 체크박스 열 더블클릭 시 간편하게 활성/비활성 토글
+                        var row = _gridClients.Rows[e.RowIndex];
+                        if (row.Tag is ClientSession session)
+                        {
+                            session.IsProvisionerEnabled = !session.IsProvisionerEnabled;
+                            row.Cells["auto_provision"].Value = session.IsProvisionerEnabled;
+                            RefreshGridRows();
+                        }
+                    }
+                    else if (colName == "cjid")
                     {
                         OpenInputCjIdDialog();
                     }
@@ -1066,6 +1119,12 @@ namespace MultiDeployOS.Master.Forms
                 {
                     tc.Order.Remove("no");
                     tc.Order.Insert(0, "no");
+                    if (!tc.Order.Contains("auto_provision"))
+                    {
+                        int cjIdx = tc.Order.IndexOf("cjid");
+                        if (cjIdx >= 0) tc.Order.Insert(cjIdx, "auto_provision");
+                        else tc.Order.Add("auto_provision");
+                    }
                     int displayIndex = 0;
                     foreach (var colName in tc.Order)
                     {
@@ -1607,6 +1666,7 @@ namespace MultiDeployOS.Master.Forms
             {
                 "no" => s => s.SessionId,
                 "status" => s => s.Status,
+                "auto_provision" => s => s.IsProvisionerEnabled,
                 "cjid" => s => s.CjId,
                 "ip" => s => s.IpAddress,
                 "model" => s => $"{s.System.Manufacturer} {s.System.ModelName}",
@@ -1762,13 +1822,11 @@ namespace MultiDeployOS.Master.Forms
                     imageColor = Color.FromArgb(52, 211, 153); // 자동선택 기본값은 에메랄드 그린
                 }
 
-                string cjIdDisplayText = !s.IsProvisionerEnabled
-                    ? "[비활성]"
-                    : (string.IsNullOrWhiteSpace(s.CjId) ? "" : s.CjId);
+                string cjIdDisplayText = string.IsNullOrWhiteSpace(s.CjId) ? "" : s.CjId;
 
-                Color cjIdColor = !s.IsProvisionerEnabled
-                    ? Color.FromArgb(148, 163, 184)
-                    : (string.IsNullOrWhiteSpace(s.CjId) ? Color.FromArgb(203, 213, 225) : Color.FromArgb(56, 189, 248));
+                Color cjIdColor = s.IsProvisionerEnabled
+                    ? (string.IsNullOrWhiteSpace(s.CjId) ? Color.FromArgb(203, 213, 225) : Color.FromArgb(56, 189, 248))
+                    : Color.FromArgb(100, 116, 139);
 
                 if (existingRowMap.TryGetValue(s.SessionId, out var existingRow))
                 {
@@ -1784,6 +1842,10 @@ namespace MultiDeployOS.Master.Forms
                     // 기존 행 내용 및 순번 갱신
                     SetCellText(existingRow.Cells["no"], (i + 1).ToString());
                     SetCellText(existingRow.Cells["status"], statusText);
+                    if (existingRow.Cells["auto_provision"].Value is not bool bVal || bVal != s.IsProvisionerEnabled)
+                    {
+                        existingRow.Cells["auto_provision"].Value = s.IsProvisionerEnabled;
+                    }
                     SetCellText(existingRow.Cells["cjid"], cjIdDisplayText);
                     SetCellText(existingRow.Cells["ip"], s.IpAddress);
                     SetCellText(existingRow.Cells["model"], $"{s.System.Manufacturer} {s.System.ModelName}".Trim());
@@ -1815,6 +1877,7 @@ namespace MultiDeployOS.Master.Forms
                     int rowIdx = _gridClients.Rows.Add(
                         (i + 1).ToString(),
                         statusText,
+                        s.IsProvisionerEnabled,
                         cjIdDisplayText,
                         s.IpAddress,
                         $"{s.System.Manufacturer} {s.System.ModelName}".Trim(),
@@ -1986,6 +2049,111 @@ namespace MultiDeployOS.Master.Forms
                     }
                 }
             }
+        }
+
+
+        // ====================================================================
+        // 전체 진행도 직관적 막대표시 (Progress Bar Custom Painting)
+        // ====================================================================
+        private void GridClients_CellPainting(object? sender, DataGridViewCellPaintingEventArgs e)
+        {
+            if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+            if (_gridClients.Columns[e.ColumnIndex].Name != "progress") return;
+
+            var row = _gridClients.Rows[e.RowIndex];
+            if (row.Tag is not ClientSession session) return;
+
+            // 1. 기본 배경 및 그리드 셀 라인 페인팅
+            e.Paint(e.CellBounds, DataGridViewPaintParts.Background | DataGridViewPaintParts.Border);
+
+            double percent = 0;
+            if (session.Progress != null && session.Progress.Percent > 0)
+            {
+                percent = Math.Min(100.0, Math.Max(0.0, session.Progress.Percent));
+            }
+            else if (session.Status == "SUCCESS")
+            {
+                percent = 100.0;
+            }
+
+            // 2. 게이지 막대 영역 (상하 6px, 좌우 6px 여백)
+            var barRect = new Rectangle(
+                e.CellBounds.X + 6,
+                e.CellBounds.Y + 6,
+                Math.Max(10, e.CellBounds.Width - 12),
+                Math.Max(10, e.CellBounds.Height - 12)
+            );
+
+            // 2-1. 진행 막대 배경 트랙
+            using (var trackBrush = new SolidBrush(Color.FromArgb(24, 32, 47)))
+            {
+                e.Graphics.FillRectangle(trackBrush, barRect);
+            }
+            using (var borderPen = new Pen(Color.FromArgb(51, 65, 85), 1))
+            {
+                e.Graphics.DrawRectangle(borderPen, barRect);
+            }
+
+            // 2-2. 진행률 막대 채우기
+            if (percent > 0)
+            {
+                int fillW = (int)Math.Round((barRect.Width - 2) * (percent / 100.0));
+                fillW = Math.Max(2, Math.Min(barRect.Width - 2, fillW));
+                var fillRect = new Rectangle(barRect.X + 1, barRect.Y + 1, fillW, barRect.Height - 1);
+
+                Color startColor, endColor;
+                if (session.Status == "SUCCESS")
+                {
+                    startColor = Color.FromArgb(34, 197, 94); // 에메랄드 그린
+                    endColor = Color.FromArgb(16, 185, 129);
+                }
+                else if (session.Status == "FAILED")
+                {
+                    startColor = Color.FromArgb(239, 68, 68); // 레드
+                    endColor = Color.FromArgb(220, 38, 38);
+                }
+                else if (session.Status == "PXE_BOOT")
+                {
+                    startColor = Color.FromArgb(14, 165, 233); // 스카이블루
+                    endColor = Color.FromArgb(56, 189, 248);
+                }
+                else
+                {
+                    // IMAGING 등 배포 진행 중: 시안 -> 인디고 그라데이션
+                    startColor = Color.FromArgb(14, 165, 233);
+                    endColor = Color.FromArgb(99, 102, 241);
+                }
+
+                using (var barBrush = new System.Drawing.Drawing2D.LinearGradientBrush(
+                    fillRect, startColor, endColor, System.Drawing.Drawing2D.LinearGradientMode.Horizontal))
+                {
+                    e.Graphics.FillRectangle(barBrush, fillRect);
+                }
+            }
+
+            // 2-3. 텍스트 라벨 (막대 위에 굵은 글씨로 선명하게 출력)
+            string text = e.Value?.ToString() ?? "";
+            if (!string.IsNullOrEmpty(text))
+            {
+                using var textFormat = new StringFormat
+                {
+                    Alignment = StringAlignment.Center,
+                    LineAlignment = StringAlignment.Center,
+                    Trimming = StringTrimming.EllipsisCharacter,
+                    FormatFlags = StringFormatFlags.NoWrap
+                };
+
+                // 가독성을 위한 1px 그림자
+                using var shadowBrush = new SolidBrush(Color.FromArgb(180, 15, 23, 42));
+                var shadowRect = new Rectangle(barRect.X + 1, barRect.Y + 1, barRect.Width, barRect.Height);
+                using var font = new Font(e.CellStyle.Font ?? _gridClients.Font, FontStyle.Bold);
+                e.Graphics.DrawString(text, font, shadowBrush, shadowRect, textFormat);
+
+                using var textBrush = new SolidBrush(Color.White);
+                e.Graphics.DrawString(text, font, textBrush, barRect, textFormat);
+            }
+
+            e.Handled = true;
         }
 
         private void GridClients_ColumnHeaderMouseClick(object? sender, DataGridViewCellMouseEventArgs e)
