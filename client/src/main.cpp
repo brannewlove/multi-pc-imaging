@@ -679,6 +679,7 @@ int main(int argc, char* argv[]) {
                         std::string deployDir = cjWorkDir + "\\MultiDeploy";
                         std::string scriptsDir = targetDrivePrefix + "\\Windows\\Setup\\Scripts";
                         std::string startupDir = targetDrivePrefix + "\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp";
+                        std::string desktopDir = targetDrivePrefix + "\\Users\\Public\\Desktop";
 
                         std::error_code ec;
                         std::filesystem::create_directories(std::filesystem::u8path(cjWorkDir), ec);
@@ -686,12 +687,14 @@ int main(int argc, char* argv[]) {
                         std::filesystem::create_directories(std::filesystem::u8path(deployDir), ec);
                         std::filesystem::create_directories(std::filesystem::u8path(scriptsDir), ec);
                         std::filesystem::create_directories(std::filesystem::u8path(startupDir), ec);
+                        std::filesystem::create_directories(std::filesystem::u8path(desktopDir), ec);
 
                         system(("cmd.exe /c mkdir \"" + cjWorkDir + "\" >nul 2>&1").c_str());
                         system(("cmd.exe /c mkdir \"" + as20Dir + "\" >nul 2>&1").c_str());
                         system(("cmd.exe /c mkdir \"" + deployDir + "\" >nul 2>&1").c_str());
                         system(("cmd.exe /c mkdir \"" + scriptsDir + "\" >nul 2>&1").c_str());
                         system(("cmd.exe /c mkdir \"" + startupDir + "\" >nul 2>&1").c_str());
+                        system(("cmd.exe /c mkdir \"" + desktopDir + "\" >nul 2>&1").c_str());
 
                         // 1) assigned_info.json 생성 (C:\Temp\CJ_Work 및 C:\Temp\CJ_Work\MultiDeploy 양쪽 모두 주입)
                         std::string jsonContent = "{\n  \"enabled\": true,\n  \"assignedId\": \"" + SimpleJson::EscapeString(provisionerAssignedId) + "\"\n}\n";
@@ -786,51 +789,247 @@ int main(int argc, char* argv[]) {
                             std::cerr << "  [-] CJAutoProvisioner.exe를 찾거나 복사하지 못했습니다.\n";
                         }
 
-                        // 3-1) 오프라인 레지스트리(SOFTWARE)에 RunOnce 직접 등록 (기존 윈도우 일반 부팅 완벽 지원!)
+                        // 3-1) C:\Temp\CJ_Work\run_provision.ps1 무의존성 PowerShell 스크립트 직접 주입 (UTF-8 BOM 포함)
+                        std::string ps1Path = cjWorkDir + "\\run_provision.ps1";
+                        std::ofstream ps1Ofs(ps1Path, std::ios::binary);
+                        if (ps1Ofs.is_open()) {
+                            const unsigned char bom[] = { 0xEF, 0xBB, 0xBF };
+                            ps1Ofs.write(reinterpret_cast<const char*>(bom), sizeof(bom));
+
+                            std::string ps1Content =
+                                "$ErrorActionPreference = 'SilentlyContinue'\r\n"
+                                "$logFile = 'C:\\Temp\\CJ_Work\\provision.log'\r\n"
+                                "\r\n"
+                                "function Write-ProvLog($msg) {\r\n"
+                                "    $ts = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss.fff')\r\n"
+                                "    $line = \"[$ts] $msg\"\r\n"
+                                "    Write-Host $line\r\n"
+                                "    try {\r\n"
+                                "        $dir = [System.IO.Path]::GetDirectoryName($logFile)\r\n"
+                                "        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }\r\n"
+                                "        [System.IO.File]::AppendAllText($logFile, \"$line`r`n\", [System.Text.Encoding]::UTF8)\r\n"
+                                "    } catch {}\r\n"
+                                "}\r\n"
+                                "\r\n"
+                                "Write-ProvLog '=========================================================='\r\n"
+                                "Write-ProvLog '[MultiDeploy] CJ 보안 소프트웨어 무인 자동화 프로비저너 시작'\r\n"
+                                "Write-ProvLog '=========================================================='\r\n"
+                                "\r\n"
+                                "# 1. 대상 실행 파일 탐색\r\n"
+                                "$appCandidates = @(\r\n"
+                                "    'C:\\Temp\\CJ_Work\\AS_2.0\\AutoSetup2.0.exe',\r\n"
+                                "    'C:\\Temp\\CJ_Work\\AutoSetup2.0.exe',\r\n"
+                                "    'C:\\Temp\\CJ_Work\\AutoSetup 1.17.exe',\r\n"
+                                "    'C:\\Temp\\CJ_Work\\AutoSetup1.16.exe'\r\n"
+                                ")\r\n"
+                                "$appPath = $null\r\n"
+                                "foreach ($c in $appCandidates) {\r\n"
+                                "    if (Test-Path $c) { $appPath = $c; break }\r\n"
+                                "}\r\n"
+                                "if (-not $appPath -and (Test-Path 'C:\\Temp\\CJ_Work')) {\r\n"
+                                "    $matches = Get-ChildItem -Path 'C:\\Temp\\CJ_Work' -Filter 'AutoSetup*.exe' -Recurse -File -ErrorAction SilentlyContinue\r\n"
+                                "    if ($matches -and $matches.Count -gt 0) { $appPath = $matches[0].FullName }\r\n"
+                                "}\r\n"
+                                "\r\n"
+                                "if (-not $appPath) {\r\n"
+                                "    Write-ProvLog '[ERROR] AutoSetup 실행 파일을 찾을 수 없습니다.'\r\n"
+                                "    exit 1\r\n"
+                                "}\r\n"
+                                "\r\n"
+                                "Write-ProvLog \"[Step 1] 대상 실행 파일 발견: $appPath\"\r\n"
+                                "\r\n"
+                                "# 2. 프로세스 시작 (이미 실행 중이 아니면 실행)\r\n"
+                                "$running = Get-Process -Name 'AutoSetup*' -ErrorAction SilentlyContinue\r\n"
+                                "if ($running) {\r\n"
+                                "    Write-ProvLog \"[Step 2] 이미 실행 중인 프로세스 감지 (PID: $($running[0].Id))\"\r\n"
+                                "} else {\r\n"
+                                "    Write-ProvLog '[Step 2] AutoSetup 프로세스 시작...'\r\n"
+                                "    $appDir = [System.IO.Path]::GetDirectoryName($appPath)\r\n"
+                                "    $proc = Start-Process -FilePath $appPath -WorkingDirectory $appDir -PassThru\r\n"
+                                "    if ($proc) { Write-ProvLog \"[PROCESS] PID: $($proc.Id)\" }\r\n"
+                                "}\r\n"
+                                "\r\n"
+                                "# 3. 창 감지 및 [설치 시작] 버튼 클릭 대기\r\n"
+                                "Write-ProvLog '[Step 3] 창 감지 및 버튼 클릭 대기 중...'\r\n"
+                                "$win32Code = @'\r\n"
+                                "using System;\r\n"
+                                "using System.Text;\r\n"
+                                "using System.Runtime.InteropServices;\r\n"
+                                "public class NativeWinAuto {\r\n"
+                                "    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);\r\n"
+                                "    [DllImport(\"user32.dll\")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);\r\n"
+                                "    [DllImport(\"user32.dll\")] public static extern bool EnumChildWindows(IntPtr hWndParent, EnumWindowsProc lpEnumFunc, IntPtr lParam);\r\n"
+                                "    [DllImport(\"user32.dll\", CharSet=CharSet.Auto)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);\r\n"
+                                "    [DllImport(\"user32.dll\")] public static extern bool IsWindowVisible(IntPtr hWnd);\r\n"
+                                "    [DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr hWnd);\r\n"
+                                "    [DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);\r\n"
+                                "    [DllImport(\"user32.dll\", CharSet=CharSet.Auto)] public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);\r\n"
+                                "}\r\n"
+                                "'@\r\n"
+                                "Add-Type -TypeDefinition $win32Code -ErrorAction SilentlyContinue\r\n"
+                                "\r\n"
+                                "$wsh = New-Object -ComObject WScript.Shell\r\n"
+                                "$deadline = (Get-Date).AddSeconds(45)\r\n"
+                                "$clicked = $false\r\n"
+                                "\r\n"
+                                "while ((Get-Date) -lt $deadline) {\r\n"
+                                "    if ($wsh.AppActivate('CJ 보안')) {\r\n"
+                                "        Write-ProvLog '[DETECT] WScript.Shell 창 활성화 성공 -> SendKeys 전송'\r\n"
+                                "        Start-Sleep -Milliseconds 600\r\n"
+                                "        $wsh.SendKeys('{ENTER}')\r\n"
+                                "        Start-Sleep -Milliseconds 300\r\n"
+                                "        $wsh.SendKeys(' ')\r\n"
+                                "        $clicked = $true\r\n"
+                                "        break\r\n"
+                                "    }\r\n"
+                                "\r\n"
+                                "    try {\r\n"
+                                "        $script:foundHwnd = [IntPtr]::Zero\r\n"
+                                "        [NativeWinAuto]::EnumWindows({\r\n"
+                                "            param($hWnd, $lParam)\r\n"
+                                "            if (![NativeWinAuto]::IsWindowVisible($hWnd)) { return $true }\r\n"
+                                "            $sb = New-Object System.Text.StringBuilder 512\r\n"
+                                "            [NativeWinAuto]::GetWindowText($hWnd, $sb, 512) | Out-Null\r\n"
+                                "            $title = $sb.ToString()\r\n"
+                                "            if ($title -like '*CJ*' -or $title -like '*보안*' -or $title -like '*설치 자동화*') {\r\n"
+                                "                $script:foundHwnd = $hWnd\r\n"
+                                "                return $false\r\n"
+                                "            }\r\n"
+                                "            return $true\r\n"
+                                "        }, [IntPtr]::Zero) | Out-Null\r\n"
+                                "\r\n"
+                                "        if ($script:foundHwnd -and $script:foundHwnd -ne [IntPtr]::Zero) {\r\n"
+                                "            Write-ProvLog \"[FOUND] Win32 창 핸들: 0x$($script:foundHwnd.ToString('X8'))\"\r\n"
+                                "            [NativeWinAuto]::ShowWindow($script:foundHwnd, 9) | Out-Null\r\n"
+                                "            [NativeWinAuto]::SetForegroundWindow($script:foundHwnd) | Out-Null\r\n"
+                                "            Start-Sleep -Milliseconds 500\r\n"
+                                "\r\n"
+                                "            $script:btnHwnd = [IntPtr]::Zero\r\n"
+                                "            [NativeWinAuto]::EnumChildWindows($script:foundHwnd, {\r\n"
+                                "                param($hChild, $lParam)\r\n"
+                                "                $sb = New-Object System.Text.StringBuilder 256\r\n"
+                                "                [NativeWinAuto]::GetWindowText($hChild, $sb, 256) | Out-Null\r\n"
+                                "                $txt = $sb.ToString().Trim()\r\n"
+                                "                if ($txt -like '*설치*' -or $txt -like '*시작*' -or $txt -eq 'OK' -or $txt -eq '확인') {\r\n"
+                                "                    $script:btnHwnd = $hChild\r\n"
+                                "                    return $false\r\n"
+                                "                }\r\n"
+                                "                return $true\r\n"
+                                "            }, [IntPtr]::Zero) | Out-Null\r\n"
+                                "\r\n"
+                                "            if ($script:btnHwnd -and $script:btnHwnd -ne [IntPtr]::Zero) {\r\n"
+                                "                [NativeWinAuto]::SendMessage($script:btnHwnd, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null\r\n"
+                                "                [NativeWinAuto]::SendMessage($script:btnHwnd, 0x0201, [IntPtr]1, [IntPtr]::Zero) | Out-Null\r\n"
+                                "                [NativeWinAuto]::SendMessage($script:btnHwnd, 0x0202, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null\r\n"
+                                "                Write-ProvLog '[CLICK] Win32 BM_CLICK 신호 전송 완료'\r\n"
+                                "                $clicked = $true\r\n"
+                                "                break\r\n"
+                                "            } else {\r\n"
+                                "                $wsh.SendKeys('{ENTER}')\r\n"
+                                "                $clicked = $true\r\n"
+                                "                Write-ProvLog '[CLICK] 창 포커스 후 Enter 키 전송'\r\n"
+                                "                break\r\n"
+                                "            }\r\n"
+                                "        }\r\n"
+                                "    } catch {}\r\n"
+                                "\r\n"
+                                "    Start-Sleep -Milliseconds 1000\r\n"
+                                "}\r\n"
+                                "\r\n"
+                                "if ($clicked) {\r\n"
+                                "    Write-ProvLog '[SUCCESS] 설치 시작 자동 트리거 완료!'\r\n"
+                                "} else {\r\n"
+                                "    Write-ProvLog '[TIMEOUT] 45초 내 버튼 클릭을 완료하지 못했습니다.'\r\n"
+                                "}\r\n"
+                                "\r\n"
+                                "Write-ProvLog '[Step 4] 시작프로그램 자동 실행 항목 정리'\r\n"
+                                "Remove-Item 'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp\\run_provision.cmd' -Force -ErrorAction SilentlyContinue\r\n";
+
+                            ps1Ofs << ps1Content;
+                            ps1Ofs.close();
+                            std::cout << "  [+] 무의존성 PowerShell 프로비저닝 스크립트 주입 완료: " << ps1Path << "\n";
+                        }
+
+                        // 3-2) C:\Temp\CJ_Work\run_provision.cmd 런처 생성
+                        std::string cmdPath = cjWorkDir + "\\run_provision.cmd";
+                        std::ofstream cmdOfs(cmdPath);
+                        if (cmdOfs.is_open()) {
+                            cmdOfs << "@echo off\r\n";
+                            cmdOfs << "chcp 65001 > nul\r\n";
+                            cmdOfs << "echo ========================================================\r\n";
+                            cmdOfs << "echo  [MultiDeploy] CJ 보안 소프트웨어 무인 자동화 프로비저너\r\n";
+                            cmdOfs << "echo ========================================================\r\n";
+                            cmdOfs << "echo.\r\n";
+                            cmdOfs << "echo [*] 윈도우 환경 및 화면 초기화 대기 중 (5초)...\r\n";
+                            cmdOfs << "timeout /t 5 /nobreak > nul\r\n\r\n";
+                            cmdOfs << ":: 1. .NET 4.8 네이티브 프로비저너가 존재하면 최우선 병행 실행\r\n";
+                            cmdOfs << "if exist \"C:\\Temp\\CJ_Work\\CJAutoProvisioner.exe\" (\r\n";
+                            cmdOfs << "    echo [*] CJAutoProvisioner.exe 백그라운드 실행 중...\r\n";
+                            cmdOfs << "    start \"\" \"C:\\Temp\\CJ_Work\\CJAutoProvisioner.exe\"\r\n";
+                            cmdOfs << "    timeout /t 2 /nobreak > nul\r\n";
+                            cmdOfs << ") else if exist \"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\" (\r\n";
+                            cmdOfs << "    echo [*] MultiDeploy\\CJAutoProvisioner.exe 백그라운드 실행 중...\r\n";
+                            cmdOfs << "    start \"\" \"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\"\r\n";
+                            cmdOfs << "    timeout /t 2 /nobreak > nul\r\n";
+                            cmdOfs << ")\r\n\r\n";
+                            cmdOfs << ":: 2. 무의존성 PowerShell 자동화 스크립트 실행 (창 감지 및 설치시작 자동 클릭)\r\n";
+                            cmdOfs << "if exist \"C:\\Temp\\CJ_Work\\run_provision.ps1\" (\r\n";
+                            cmdOfs << "    echo [*] PowerShell 무인 자동화 시작...\r\n";
+                            cmdOfs << "    powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Normal -File \"C:\\Temp\\CJ_Work\\run_provision.ps1\"\r\n";
+                            cmdOfs << ")\r\n\r\n";
+                            cmdOfs << ":: 3. 만약 프로세스가 뜨지 않았을 경우 직접 실행 보장 (최후의 안전망)\r\n";
+                            cmdOfs << "timeout /t 2 /nobreak > nul\r\n";
+                            cmdOfs << "tasklist /fi \"imagename eq AutoSetup2.0.exe\" 2>nul | find /i \"AutoSetup2.0.exe\" >nul\r\n";
+                            cmdOfs << "if errorlevel 1 (\r\n";
+                            cmdOfs << "    echo [*] 프로세스 직접 실행 시도...\r\n";
+                            cmdOfs << "    if exist \"C:\\Temp\\CJ_Work\\AS_2.0\\AutoSetup2.0.exe\" (\r\n";
+                            cmdOfs << "        start \"\" /d \"C:\\Temp\\CJ_Work\\AS_2.0\" \"C:\\Temp\\CJ_Work\\AS_2.0\\AutoSetup2.0.exe\"\r\n";
+                            cmdOfs << "    ) else if exist \"C:\\Temp\\CJ_Work\\AutoSetup2.0.exe\" (\r\n";
+                            cmdOfs << "        start \"\" /d \"C:\\Temp\\CJ_Work\" \"C:\\Temp\\CJ_Work\\AutoSetup2.0.exe\"\r\n";
+                            cmdOfs << "    )\r\n";
+                            cmdOfs << ")\r\n\r\n";
+                            cmdOfs << ":: 4. 시작프로그램 중복 실행 방지\r\n";
+                            cmdOfs << "del \"C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp\\run_provision.cmd\" >nul 2>&1\r\n";
+                            cmdOfs << "reg.exe delete \"HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\" /v \"CJAutoProvision\" /f >nul 2>&1\r\n";
+                            cmdOfs << "reg.exe delete \"HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce\" /v \"CJAutoProvision\" /f >nul 2>&1\r\n";
+                            cmdOfs << "echo [+] 프로비저닝 작업 완료!\r\n";
+                            cmdOfs.close();
+                            std::cout << "  [+] run_provision.cmd 런처 생성 완료: " << cmdPath << "\n";
+                        }
+
+                        // 3-3) 공용 시작프로그램(StartUp)에 run_provision.cmd 복사
+                        std::string startupCmdPath = startupDir + "\\run_provision.cmd";
+                        CopyFileA(cmdPath.c_str(), startupCmdPath.c_str(), FALSE);
+                        std::cout << "  [+] 공용 시작프로그램 등록 완료: " << startupCmdPath << "\n";
+
+                        // 3-4) 바탕화면(Public Desktop)에 '보안프로그램_자동설치.cmd' 복사
+                        std::string desktopCmdPath = desktopDir + "\\보안프로그램_자동설치.cmd";
+                        CopyFileA(cmdPath.c_str(), desktopCmdPath.c_str(), FALSE);
+                        std::cout << "  [+] 공용 바탕화면 바로가기 등록 완료: " << desktopCmdPath << "\n";
+
+                        // 3-5) 오프라인 레지스트리(SOFTWARE)에 Run & RunOnce 직접 등록 (따옴표 이스케이프 버그 완전 해결)
                         std::string swHivePath = targetDrivePrefix + "\\Windows\\System32\\config\\SOFTWARE";
                         if (GetFileAttributesA(swHivePath.c_str()) != INVALID_FILE_ATTRIBUTES) {
                             std::string loadCmd = "reg.exe load HKLM\\OFFLINE_SOFTWARE \"" + swHivePath + "\" >nul 2>&1";
                             int rLoad = system(loadCmd.c_str());
                             if (rLoad == 0) {
-                                std::string addCmd = "reg.exe add \"HKLM\\OFFLINE_SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce\" /v \"CJAutoProvisioner\" /t REG_SZ /d \"\\\"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\\\"\" /f >nul 2>&1";
-                                system(addCmd.c_str());
-                                // UAC 보안창(사용자 계정 컨트롤) 무인 자동 승격을 위해 프롬프트 임시 비활성화 (0 = 확인 대화상자 없이 즉시 관리자 권한 승격 실행)
+                                system("reg.exe add \"HKLM\\OFFLINE_SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\" /v \"CJAutoProvision\" /t REG_SZ /d C:\\Temp\\CJ_Work\\run_provision.cmd /f >nul 2>&1");
+                                system("reg.exe add \"HKLM\\OFFLINE_SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce\" /v \"CJAutoProvision\" /t REG_SZ /d C:\\Temp\\CJ_Work\\run_provision.cmd /f >nul 2>&1");
                                 system("reg.exe add \"HKLM\\OFFLINE_SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\" /v \"ConsentPromptBehaviorAdmin\" /t REG_DWORD /d 0 /f >nul 2>&1");
                                 system("reg.exe add \"HKLM\\OFFLINE_SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\" /v \"PromptOnSecureDesktop\" /t REG_DWORD /d 0 /f >nul 2>&1");
-                                system("reg.exe add \"HKLM\\OFFLINE_SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce\" /v \"CJAutoProvisionerRoot\" /t REG_SZ /d \"\\\"C:\\Temp\\CJ_Work\\CJAutoProvisioner.exe\\\"\" /f >nul 2>&1");
                                 system("reg.exe unload HKLM\\OFFLINE_SOFTWARE >nul 2>&1");
-                                std::cout << "  [+] 오프라인 레지스트리(RunOnce 및 UAC 무인 자동승격) 등록 완료!\n";
+                                std::cout << "  [+] 오프라인 레지스트리(Run / RunOnce 및 UAC 무인 자동승격) 등록 완료!\n";
                             }
                         }
 
-                        // 3-2) 공용 시작프로그램(StartUp) 1회성 런처 배치파일 주입 (로그인 즉시 실행 보장)
-                        std::string startupCmdPath = startupDir + "\\CJAutoProvisionerLauncher.cmd";
-                        std::ofstream startupOfs(startupCmdPath);
-                        if (startupOfs.is_open()) {
-                            startupOfs << "@echo off\r\n";
-                            startupOfs << "timeout /t 2 /nobreak >nul 2>&1\r\n";
-                            startupOfs << "if exist \"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\" (\r\n";
-                            startupOfs << "    start \"\" \"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\"\r\n";
-                            startupOfs << ") else if exist \"C:\\Temp\\CJ_Work\\CJAutoProvisioner.exe\" (\r\n";
-                            startupOfs << "    start \"\" \"C:\\Temp\\CJ_Work\\CJAutoProvisioner.exe\"\r\n";
-                            startupOfs << ")\r\n";
-                            startupOfs << "del \"%~f0\" >nul 2>&1\r\n";
-                            startupOfs.close();
-                            std::cout << "  [+] 공용 시작프로그램 1회용 자동실행 런처 등록 완료: " << startupCmdPath << "\n";
-                        }
-
-                        // 3-3) SetupComplete.cmd 등록 (Sysprep OOBE 환경 듀얼 안전망)
+                        // 3-6) SetupComplete.cmd 등록 (Sysprep OOBE 환경 듀얼 안전망)
                         std::string setupCmdPath = scriptsDir + "\\SetupComplete.cmd";
                         std::ofstream scOfs(setupCmdPath, std::ios::app);
                         if (scOfs.is_open()) {
                             scOfs << "\r\n";
                             scOfs << "rem --- MultiDeploy Post-OOBE Auto-Provisioner Trigger ---\r\n";
-                            scOfs << "if exist \"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\" (\r\n";
-                            scOfs << "    reg.exe add \"HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce\" /v \"CJAutoProvisioner\" /t REG_SZ /d \"\\\"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\\\"\" /f >nul 2>&1\r\n";
-                            scOfs << "    start \"\" \"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\"\r\n";
-                            scOfs << ") else if exist \"C:\\Temp\\CJ_Work\\CJAutoProvisioner.exe\" (\r\n";
-                            scOfs << "    reg.exe add \"HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce\" /v \"CJAutoProvisioner\" /t REG_SZ /d \"\\\"C:\\Temp\\CJ_Work\\CJAutoProvisioner.exe\\\"\" /f >nul 2>&1\r\n";
-                            scOfs << "    start \"\" \"C:\\Temp\\CJ_Work\\CJAutoProvisioner.exe\"\r\n";
+                            scOfs << "if exist \"C:\\Temp\\CJ_Work\\run_provision.cmd\" (\r\n";
+                            scOfs << "    reg.exe add \"HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\" /v \"CJAutoProvision\" /t REG_SZ /d C:\\Temp\\CJ_Work\\run_provision.cmd /f >nul 2>&1\r\n";
                             scOfs << ")\r\n";
                             scOfs.close();
                             std::cout << "  [+] SetupComplete.cmd 등록 완료: " << setupCmdPath << "\n";
