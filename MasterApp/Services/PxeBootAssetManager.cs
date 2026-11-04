@@ -374,6 +374,58 @@ namespace MultiDeployOS.Master.Services
                 return (false, "PeImagingAgent.exe 바이너리를 찾을 수 없습니다. client 프로젝트를 먼저 빌드하거나 bin\\agent 폴더를 확인하세요.");
             }
 
+            // 1. 이미 검증된 Inject-BootWim.bat 가 존재하면 최우선으로 관리자 권한(UAC) 창으로 실행
+            string? batPath = ResolveInjectBootWimBatPath();
+            if (!string.IsNullOrEmpty(batPath) && File.Exists(batPath))
+            {
+                bool isAdminUser = NetworkUtility.IsRunningAsAdministrator();
+                onProgress?.Invoke("관리자 권한으로 DISM 패치 도구(Inject-BootWim.bat)를 실행합니다...");
+
+                var psiBat = new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = $"/c call \"{batPath}\" \"{wimPath}\" \"{agentPath}\"",
+                    WorkingDirectory = Path.GetDirectoryName(batPath) ?? AppDomain.CurrentDomain.BaseDirectory,
+                    UseShellExecute = true,
+                    Verb = isAdminUser ? "" : "runas",
+                    WindowStyle = ProcessWindowStyle.Normal
+                };
+
+                try
+                {
+                    DateTime prevWimWriteTime = File.GetLastWriteTimeUtc(wimPath);
+                    using var procBat = Process.Start(psiBat);
+                    if (procBat == null) return (false, "DISM 패치 프로세스를 시작하지 못했습니다.");
+
+                    await procBat.WaitForExitAsync();
+                    InvalidateBootWimCache();
+
+                    DateTime newWimWriteTime = File.GetLastWriteTimeUtc(wimPath);
+                    bool wimUpdated = newWimWriteTime > prevWimWriteTime;
+
+                    if (procBat.ExitCode == 0 || wimUpdated)
+                    {
+                        var agentFi = new FileInfo(agentPath);
+                        return (true, $"boot.wim 내부 및 관련 폴더에 최신 에이전트 주입이 완료되었습니다!\n\n" +
+                                      $"[주입된 최신 에셋]\n" +
+                                      $"- 파일명: {agentFi.Name} ({agentFi.Length / 1024} KB, 수정일: {agentFi.LastWriteTime:yyyy-MM-dd HH:mm:ss})\n" +
+                                      $"- 대상 WIM: {wimPath}");
+                    }
+                    else
+                    {
+                        return (false, $"DISM 패치 작업이 취소되었거나 실패했습니다. (종료 코드: {procBat.ExitCode})");
+                    }
+                }
+                catch (System.ComponentModel.Win32Exception w32ex) when (w32ex.NativeErrorCode == 1223)
+                {
+                    return (false, "관리자 권한(UAC) 승인이 취소되었습니다. DISM 작업을 수행하려면 '예'를 눌러 관리자 권한을 허용해야 합니다.");
+                }
+                catch (Exception ex)
+                {
+                    return (false, $"DISM 실행 실패: {ex.Message}");
+                }
+            }
+
             string startnetPath = ResolveOrCreateStartnetScript();
             string mountBase = Path.Combine(Path.GetTempPath(), $"MD_WinPEMount_{DateTime.Now:HHmmss}");
             string logFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dism_inject.log");
@@ -483,10 +535,16 @@ namespace MultiDeployOS.Master.Services
             }
             sb.AppendLine(")");
             sb.AppendLine("rem 커스텀 WinPE (PEApp, Tools, 바탕화면 등) 내부 기존 PeImagingAgent.exe 전수 검색 및 덮어쓰기");
-            sb.AppendLine($"powershell -NoProfile -Command \"Get-ChildItem -Path '!CUR_MOUNT!' -Filter 'PeImagingAgent.exe' -Recurse -File -Force -ErrorAction SilentlyContinue | ForEach-Object {{ Copy-Item -Path '{agentPath}' -Destination $_.FullName -Force; Write-Host ('  [WIM 갱신] ' + $_.FullName) }}\" >> \"{logFile}\" 2>&1");
+            sb.AppendLine($"for /r \"!CUR_MOUNT!\" %%F in (PeImagingAgent.exe) do (");
+            sb.AppendLine($"    copy /y \"{agentPath}\" \"%%F\" >> \"{logFile}\" 2>&1");
+            sb.AppendLine($"    echo   [WIM 갱신 확인] %%F >> \"{logFile}\"");
+            sb.AppendLine(")");
             if (!string.IsNullOrEmpty(provPath) && File.Exists(provPath))
             {
-                sb.AppendLine($"powershell -NoProfile -Command \"Get-ChildItem -Path '!CUR_MOUNT!' -Filter 'CJAutoProvisioner.exe' -Recurse -File -Force -ErrorAction SilentlyContinue | ForEach-Object {{ Copy-Item -Path '{provPath}' -Destination $_.FullName -Force; Write-Host ('  [WIM 갱신] ' + $_.FullName) }}\" >> \"{logFile}\" 2>&1");
+                sb.AppendLine($"for /r \"!CUR_MOUNT!\" %%F in (CJAutoProvisioner.exe) do (");
+                sb.AppendLine($"    copy /y \"{provPath}\" \"%%F\" >> \"{logFile}\" 2>&1");
+                sb.AppendLine($"    echo   [WIM 갱신 확인] %%F >> \"{logFile}\"");
+                sb.AppendLine(")");
             }
             sb.AppendLine("ping 127.0.0.1 -n 2 >nul 2>&1");
             sb.AppendLine($"echo [Index %IDX%] Committing changes & unmounting... >> \"{logFile}\"");
@@ -517,10 +575,9 @@ namespace MultiDeployOS.Master.Services
                 {
                     FileName = "cmd.exe",
                     Arguments = $"/c \"{cmdFile}\"",
-                    UseShellExecute = !isAdmin,
+                    UseShellExecute = true,
                     Verb = isAdmin ? "" : "runas",
-                    CreateNoWindow = isAdmin,
-                    WindowStyle = ProcessWindowStyle.Hidden
+                    WindowStyle = ProcessWindowStyle.Normal
                 };
 
                 using var proc = Process.Start(psi);
@@ -592,6 +649,7 @@ namespace MultiDeployOS.Master.Services
             {
                 Path.Combine(baseDir, "agent", "PeImagingAgent.exe"),
                 Path.Combine(baseDir, "PeImagingAgent.exe"),
+                @"c:\Users\LeeJH\.gemini\antigravity-ide\scratch\multi-pc-imaging\bin\agent\PeImagingAgent.exe",
                 Path.GetFullPath(Path.Combine(baseDir, "..", "client", "build", "PeImagingAgent.exe")),
                 Path.GetFullPath(Path.Combine(baseDir, "..", "client", "build", "Release", "PeImagingAgent.exe")),
                 Path.GetFullPath(Path.Combine(baseDir, "..", "..", "client", "build", "PeImagingAgent.exe")),
@@ -637,6 +695,22 @@ namespace MultiDeployOS.Master.Services
                 .Where(File.Exists)
                 .OrderByDescending(f => new FileInfo(f).Length)
                 .FirstOrDefault();
+        }
+
+        private static string? ResolveInjectBootWimBatPath()
+        {
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string[] candidates =
+            {
+                Path.Combine(baseDir, "Inject-BootWim.bat"),
+                @"c:\Users\LeeJH\.gemini\antigravity-ide\scratch\multi-pc-imaging\bin\Inject-BootWim.bat",
+                @"c:\Users\LeeJH\.gemini\antigravity-ide\scratch\multi-pc-imaging\Inject-BootWim.bat",
+                Path.GetFullPath(Path.Combine(baseDir, "..", "Inject-BootWim.bat")),
+                Path.GetFullPath(Path.Combine(baseDir, "..", "..", "Inject-BootWim.bat")),
+                Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "Inject-BootWim.bat"))
+            };
+
+            return candidates.FirstOrDefault(File.Exists);
         }
 
         private static string ResolveOrCreateStartnetScript()

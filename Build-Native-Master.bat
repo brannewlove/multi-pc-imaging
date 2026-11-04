@@ -75,6 +75,7 @@ if exist "client\build\PeImagingAgent.exe" (
     copy /y "client\build\Release\PeImagingAgent.exe" "bin\agent\" >nul 2>nul
 )
 if exist "client\scripts\startnet.cmd" copy /y "client\scripts\startnet.cmd" "bin\agent\" >nul 2>nul
+if exist "Inject-BootWim.bat" copy /y "Inject-BootWim.bat" "bin\" >nul 2>nul
 
 echo.
 echo ================================================================

@@ -13,6 +13,7 @@
     <Company>MultiDeployOS</Company>
     <Product>MultiDeployOS Master Native</Product>
     <ApplicationIcon>app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>
