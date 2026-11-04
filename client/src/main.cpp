@@ -171,6 +171,66 @@ static std::vector<std::string> ExtractPartitionCommands(const std::string& json
     return cmds;
 }
 
+// 방금 WIM 이미지가 더빙되어 윈도우가 설치된 실제 대상 드라이브를 100% 자동 감지
+static std::string DetectInstalledWindowsDrive(const std::string& preferredDrive = "W:") {
+    std::string candidate = preferredDrive;
+    while (!candidate.empty() && (candidate.back() == '\\' || candidate.back() == '/')) {
+        candidate.pop_back();
+    }
+    if (candidate.length() == 1) candidate += ":";
+
+    // 1단계: 지정된 우선 대상 드라이브(W:)에 실제 윈도우 핵심 파일이 존재하는지 1차 확인
+    if (!candidate.empty()) {
+        std::string testKernel = candidate + "\\Windows\\System32\\ntoskrnl.exe";
+        std::string testCmd = candidate + "\\Windows\\System32\\cmd.exe";
+        if (GetFileAttributesA(testKernel.c_str()) != INVALID_FILE_ATTRIBUTES ||
+            GetFileAttributesA(testCmd.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            std::cout << "[+] 지정된 타깃 드라이브(" << candidate << ")에서 정상 설치된 Windows 확인 완료\n";
+            return candidate;
+        }
+    }
+
+    // 2단계: 드라이브 문자가 W:가 아니거나 변경되었을 경우 전체 드라이브 자동 스캔 (WinPE X: 제외)
+    std::cout << "[*] 윈도우 설치 드라이브 자동 스캔 중 (C~Z, WinPE X: 제외)...\n";
+    const char drives[] = "WTCDEFGHIJKLMNOPQRSUVYZ";
+    std::string bestDrive = "";
+    FILETIME newestTime = { 0, 0 };
+
+    for (int i = 0; drives[i] != '\0'; ++i) {
+        char d = drives[i];
+        if (d == 'X' || d == 'x') continue; // WinPE RAM 디스크 제외
+
+        std::string driveRoot = std::string(1, d) + ":";
+        std::string kernelPath = driveRoot + "\\Windows\\System32\\ntoskrnl.exe";
+        std::string cmdPath = driveRoot + "\\Windows\\System32\\cmd.exe";
+
+        DWORD attr = GetFileAttributesA(kernelPath.c_str());
+        if (attr == INVALID_FILE_ATTRIBUTES) {
+            attr = GetFileAttributesA(cmdPath.c_str());
+        }
+
+        if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+            // 방금 WIM이 풀린 가장 최신 파티션을 우선 감지
+            WIN32_FILE_ATTRIBUTE_DATA fileInfo;
+            if (GetFileAttributesExA(kernelPath.c_str(), GetFileExInfoStandard, &fileInfo)) {
+                if (bestDrive.empty() || CompareFileTime(&fileInfo.ftLastWriteTime, &newestTime) > 0) {
+                    newestTime = fileInfo.ftLastWriteTime;
+                    bestDrive = driveRoot;
+                }
+            } else if (bestDrive.empty()) {
+                bestDrive = driveRoot;
+            }
+        }
+    }
+
+    if (!bestDrive.empty()) {
+        std::cout << "[+] 실제로 Windows가 설치된 타깃 드라이브 자동 감지 성공: " << bestDrive << "\n";
+        return bestDrive;
+    }
+
+    return candidate.empty() ? "W:" : candidate;
+}
+
 void PrintBanner() {
     std::cout << "=========================================================\n";
     std::cout << "    Multi-PC Automated Imaging Client Agent (WinPE)      \n";
@@ -461,7 +521,8 @@ int main(int argc, char* argv[]) {
                         std::cout << "[*] 사후 무인 프로비저너 자동 주입 시작 (Injecting Auto-Provisioner)...\n";
                         std::cout << "  - 대상 사번 (CJ_ID): " << (provisionerAssignedId.empty() ? "(공란 - 사전세팅 모드)" : provisionerAssignedId) << "\n";
 
-                        std::string targetDrivePrefix = targetDrive;
+                        // 윈도우가 실제로 설치된 타깃 드라이브 자동 감지
+                        std::string targetDrivePrefix = DetectInstalledWindowsDrive(targetDrive);
                         while (!targetDrivePrefix.empty() && (targetDrivePrefix.back() == '\\' || targetDrivePrefix.back() == '/')) {
                             targetDrivePrefix.pop_back();
                         }
