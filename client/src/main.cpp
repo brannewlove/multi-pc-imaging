@@ -416,6 +416,9 @@ int main(int argc, char* argv[]) {
 
         // 4. 마스터로부터의 배포 승인 명령 대기 루프
         std::string incomingJson;
+        bool lastProvisionerEnabled = false;
+        std::string lastAssignedId = "";
+        std::string lastTargetDrivePrefix = "";
         while (client.ReadMessage(incomingJson)) {
             if (incomingJson.empty()) continue;
 
@@ -452,6 +455,8 @@ int main(int argc, char* argv[]) {
                         provisionerAssignedId = ExtractJsonString(provSub, "assignedId");
                     }
                 }
+                lastProvisionerEnabled = provisionerEnabled;
+                lastAssignedId = provisionerAssignedId;
 
                 std::cout << "  - 적용 매칭 규칙 : " << (ruleName.empty() ? "기본 자동 선택 규칙" : ruleName) << "\n";
                 std::cout << "  - 대상 WIM 파일  : " << (imageName.empty() ? "install.wim" : imageName) << " (Index: " << imageIndex << ")\n\n";
@@ -488,15 +493,32 @@ int main(int argc, char* argv[]) {
                 }
                 std::cout << "[+] 파티셔닝 완료! (Partitioning Completed!)\n";
 
-                // 진행 보고 (10%)
+                // 진행 보고 (10%) - 마스터 UI와 클라이언트 화면 모두 최신 에이전트 동작 표시
                 SimpleJson::JsonValue p1 = SimpleJson::JsonValue::CreateObject();
                 p1.Set("type", "CLIENT_PROGRESS");
                 p1.Set("status", "IMAGING");
-                p1.Set("step", "파티션 구성 완료 (Partition Completed 1/3)");
+                p1.Set("step", "파티션 완료 [최신 에이전트 검증] -> 더빙 준비");
                 p1.Set("percent", 10.0);
                 p1.Set("elapsedSeconds", 5);
                 p1.Set("remainingSeconds", 120);
                 client.SendJsonMessage(p1.ToString());
+
+                // [사용자 요청 검증 배너] 디스크 파티션 완료 -> WIM 더빙 시작 중간 확인 메시지
+                std::cout << "\n";
+                std::cout << "======================================================================\n";
+                std::cout << " [★ WinPE 최신 에이전트 주입 확인 메시지 - 2026-11-04 빌드]\n";
+                std::cout << "----------------------------------------------------------------------\n";
+                std::cout << " [1] 디스크 파티션 구성이 정상적으로 완료되었습니다!\n";
+                std::cout << " [2] 잠시 후 OS WIM 이미지 적용(더빙)을 시작합니다.\n";
+                std::cout << "  * 수신된 CJ_ID 사번      : [" << (provisionerAssignedId.empty() ? "(공란 - 사전세팅 모드)" : provisionerAssignedId) << "]\n";
+                std::cout << "  * 사후 자동화(프로비저너): [" << (provisionerEnabled ? "활성 (ENABLE)" : "비활성 (DISABLE)") << "]\n";
+                std::cout << "  * 안내: 이 배너가 보이면 boot.wim에 최신 에이전트가 정상 주입된 것입니다!\n";
+                std::cout << "======================================================================\n";
+                for (int waitSec = 5; waitSec > 0; --waitSec) {
+                    std::cout << "[*] 더빙 단계 진입 대기 중... (" << waitSec << "초)   \r" << std::flush;
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                }
+                std::cout << "\n\n";
 
                 // (2) 이미지 적용 (더빙)
                 // 실제 WIM 파일 유효 경로 결정:
@@ -627,6 +649,7 @@ int main(int argc, char* argv[]) {
 
                         // 윈도우가 실제로 설치된 타깃 드라이브 자동 감지
                         std::string targetDrivePrefix = DetectInstalledWindowsDrive(targetDrive);
+                        lastTargetDrivePrefix = targetDrivePrefix;
                         while (!targetDrivePrefix.empty() && (targetDrivePrefix.back() == '\\' || targetDrivePrefix.back() == '/')) {
                             targetDrivePrefix.pop_back();
                         }
@@ -821,10 +844,25 @@ int main(int argc, char* argv[]) {
         if (deployedSuccessfully) {
             std::cout << "\n=========================================================\n";
             std::cout << " [★ 배포 성공] 모든 이미지 더빙 및 부트로더 작업이 완료되었습니다!\n";
-            std::cout << " [*] 5초 후 클라이언트 PC가 자동으로 재부팅됩니다...\n";
+            if (lastProvisionerEnabled) {
+                std::cout << "---------------------------------------------------------\n";
+                std::cout << " [★ 사후 무인 프로비저닝 파일 주입 상태 최종 검증]\n";
+                std::string drive = lastTargetDrivePrefix.empty() ? "W:" : lastTargetDrivePrefix;
+                std::cout << "  - 대상 윈도우 드라이브: " << drive << "\n";
+                std::string chkPath1 = drive + "\\Temp\\CJ_Work\\assigned_info.json";
+                std::string chkPath2 = drive + "\\Temp\\CJ_Work\\deploy_summary.txt";
+                std::string chkPath3 = drive + "\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe";
+                std::string chkPath4 = drive + "\\Temp\\CJ_Work\\CJAutoProvisioner.exe";
+                std::cout << "  - assigned_info.json : " << (GetFileAttributesA(chkPath1.c_str()) != INVALID_FILE_ATTRIBUTES ? "[생성 확인 OK]" : "[누락됨 FAIL]") << "\n";
+                std::cout << "  - deploy_summary.txt : " << (GetFileAttributesA(chkPath2.c_str()) != INVALID_FILE_ATTRIBUTES ? "[생성 확인 OK]" : "[누락됨 FAIL]") << "\n";
+                std::cout << "  - CJAutoProvisioner  : " << ((GetFileAttributesA(chkPath3.c_str()) != INVALID_FILE_ATTRIBUTES || GetFileAttributesA(chkPath4.c_str()) != INVALID_FILE_ATTRIBUTES) ? "[복사 확인 OK]" : "[누락됨 FAIL]") << "\n";
+                std::cout << "---------------------------------------------------------\n";
+            }
+            std::cout << " [*] 7초 후 클라이언트 PC가 자동으로 재부팅됩니다...\n";
+            std::cout << " [*] (화면을 멈추고 직접 확인하려면 지금 Ctrl+C를 누르세요)\n";
             std::cout << "=========================================================\n";
-            for (int sec = 5; sec > 0; --sec) {
-                std::cout << "[*] " << sec << "초 후 시스템이 재부팅됩니다... (취소: Ctrl+C)   \r" << std::flush;
+            for (int sec = 7; sec > 0; --sec) {
+                std::cout << "[*] " << sec << "초 후 시스템이 재부팅됩니다... (콘솔 확인 중)   \r" << std::flush;
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
             std::cout << "\n[*] 시스템 재부팅 명령을 실행합니다 (wpeutil reboot)...\n";
