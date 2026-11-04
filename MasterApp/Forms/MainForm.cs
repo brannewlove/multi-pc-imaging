@@ -198,7 +198,7 @@ namespace MultiDeployOS.Master.Forms
                 Padding = new Padding(0, 8, 0, 0)
             };
 
-            _btnAutoApproveToggle = CreateButton("⚪ 자동 승인: OFF", Color.FromArgb(71, 85, 105));
+            _btnAutoApproveToggle = CreateButton("⚪ 배포 자동화: OFF", Color.FromArgb(71, 85, 105));
             _btnAutoApproveToggle.Click += ToggleAutoApprove;
 
             _btnBatchApprove = CreateButton("✔ 대기 PC 일괄 승인", Color.FromArgb(14, 165, 233));
@@ -770,11 +770,11 @@ namespace MultiDeployOS.Master.Forms
             var colAuto = new DataGridViewCheckBoxColumn
             {
                 Name = "auto_provision",
-                HeaderText = "자동화",
-                Width = 65,
+                HeaderText = "CJ_ID 자동화",
+                Width = 95,
                 FlatStyle = FlatStyle.Flat,
                 ThreeState = false,
-                ToolTipText = "무인 사후 프로비저너 자동화 활성화 여부 (체크 시 활성)"
+                ToolTipText = "Windows 첫 부팅 시 사후 CJ 보안프로그램 무인 자동화 설치 여부 (체크 시 활성)"
             };
             colAuto.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             colAuto.HeaderCell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
@@ -877,7 +877,8 @@ namespace MultiDeployOS.Master.Forms
                     }
                     else if (colName == "cjid")
                     {
-                        OpenInputCjIdDialog();
+                        // 팝업창 없이 셀 내부 직접 입력 (인라인 편집) 모드 진입
+                        _gridClients.BeginEdit(true);
                     }
                     else
                     {
@@ -1645,12 +1646,12 @@ namespace MultiDeployOS.Master.Forms
             _globalAutoApprove = !_globalAutoApprove;
             if (_globalAutoApprove)
             {
-                _btnAutoApproveToggle.Text = "⚡ 자동 승인: ON";
+                _btnAutoApproveToggle.Text = "⚡ 배포 자동화: ON";
                 _btnAutoApproveToggle.BackColor = Color.FromArgb(5, 150, 105);
             }
             else
             {
-                _btnAutoApproveToggle.Text = "⚪ 자동 승인: OFF";
+                _btnAutoApproveToggle.Text = "⚪ 배포 자동화: OFF";
                 _btnAutoApproveToggle.BackColor = Color.FromArgb(71, 85, 105);
             }
         }
