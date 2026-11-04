@@ -482,6 +482,12 @@ namespace MultiDeployOS.Master.Services
                 sb.AppendLine($"    copy /y \"{provPath}\" \"!CUR_MOUNT!\\agent\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
             }
             sb.AppendLine(")");
+            sb.AppendLine("rem 커스텀 WinPE (PEApp, Tools, 바탕화면 등) 내부 기존 PeImagingAgent.exe 전수 검색 및 덮어쓰기");
+            sb.AppendLine($"powershell -NoProfile -Command \"Get-ChildItem -Path '!CUR_MOUNT!' -Filter 'PeImagingAgent.exe' -Recurse -File -Force -ErrorAction SilentlyContinue | ForEach-Object {{ Copy-Item -Path '{agentPath}' -Destination $_.FullName -Force; Write-Host ('  [WIM 갱신] ' + $_.FullName) }}\" >> \"{logFile}\" 2>&1");
+            if (!string.IsNullOrEmpty(provPath) && File.Exists(provPath))
+            {
+                sb.AppendLine($"powershell -NoProfile -Command \"Get-ChildItem -Path '!CUR_MOUNT!' -Filter 'CJAutoProvisioner.exe' -Recurse -File -Force -ErrorAction SilentlyContinue | ForEach-Object {{ Copy-Item -Path '{provPath}' -Destination $_.FullName -Force; Write-Host ('  [WIM 갱신] ' + $_.FullName) }}\" >> \"{logFile}\" 2>&1");
+            }
             sb.AppendLine("ping 127.0.0.1 -n 2 >nul 2>&1");
             sb.AppendLine($"echo [Index %IDX%] Committing changes & unmounting... >> \"{logFile}\"");
             sb.AppendLine($"dism /Unmount-Image /MountDir:\"!CUR_MOUNT!\" /Commit >> \"{logFile}\" 2>&1");

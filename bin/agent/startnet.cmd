@@ -15,18 +15,18 @@ ping 127.0.0.1 -n 3 > nul
 :: 3. 네트워크 어댑터 IP 상태 확인
 ipconfig | findstr /i "IPv4"
 
-:: 3-1. 연결된 USB/로컬 드라이브에서 최신 에이전트 및 프로비저너 자동 동기화
+:: 3-1. 연결된 USB/로컬 드라이브에서 최신 에이전트 및 프로비저너 자동 동기화 (오직 더 최신 파일일 때만 덮어씀)
 echo Checking for updated agent binaries on connected USB drives...
 for %%D in (C D E F G H I J K L M N O P Q R S T U V W Y Z) do (
     if exist "%%D:\agent\PeImagingAgent.exe" (
         echo  - [FOUND] Syncing %%D:\agent\PeImagingAgent.exe to WinPE RAM...
-        copy /y "%%D:\agent\PeImagingAgent.exe" "X:\Windows\System32\PeImagingAgent.exe" >nul 2>&1
-        copy /y "%%D:\agent\CJAutoProvisioner.exe" "X:\Windows\System32\CJAutoProvisioner.exe" >nul 2>&1
+        xcopy /d /y "%%D:\agent\PeImagingAgent.exe" "X:\Windows\System32\" >nul 2>&1
+        xcopy /d /y "%%D:\agent\CJAutoProvisioner.exe" "X:\Windows\System32\" >nul 2>&1
     )
     if exist "%%D:\PeImagingAgent.exe" (
         echo  - [FOUND] Syncing %%D:\PeImagingAgent.exe to WinPE RAM...
-        copy /y "%%D:\PeImagingAgent.exe" "X:\Windows\System32\PeImagingAgent.exe" >nul 2>&1
-        copy /y "%%D:\CJAutoProvisioner.exe" "X:\Windows\System32\CJAutoProvisioner.exe" >nul 2>&1
+        xcopy /d /y "%%D:\PeImagingAgent.exe" "X:\Windows\System32\" >nul 2>&1
+        xcopy /d /y "%%D:\CJAutoProvisioner.exe" "X:\Windows\System32\" >nul 2>&1
     )
 )
 
