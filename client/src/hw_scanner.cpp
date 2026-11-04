@@ -5,15 +5,15 @@
 #define _WIN32_WINNT 0x0A00
 #endif
 
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <iphlpapi.h>
+#include <windows.h>
+#include <winioctl.h>
 #include "hw_scanner.h"
 #include <iomanip>
 #include <iostream>
-#include <iphlpapi.h>
 #include <sstream>
-#include <windows.h>
-#include <winioctl.h>
-#include <winsock2.h>
-#include <ws2tcpip.h>
 
 
 #pragma comment(lib, "iphlpapi.lib")

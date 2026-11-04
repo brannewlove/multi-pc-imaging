@@ -606,7 +606,36 @@ int main(int argc, char* argv[]) {
                             std::cerr << "  [-] CJAutoProvisioner.exe를 찾거나 복사하지 못했습니다.\n";
                         }
 
-                        // 3) SetupComplete.cmd 등록 (RunOnce와 듀얼 안전망)
+                        // 3-1) 오프라인 레지스트리(SOFTWARE)에 RunOnce 직접 등록 (기존 윈도우 일반 부팅 완벽 지원!)
+                        std::string swHivePath = targetDrivePrefix + "\\Windows\\System32\\config\\SOFTWARE";
+                        if (GetFileAttributesA(swHivePath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                            std::string loadCmd = "reg.exe load HKLM\\OFFLINE_SOFTWARE \"" + swHivePath + "\" >nul 2>&1";
+                            int rLoad = system(loadCmd.c_str());
+                            if (rLoad == 0) {
+                                std::string addCmd = "reg.exe add \"HKLM\\OFFLINE_SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce\" /v \"CJAutoProvisioner\" /t REG_SZ /d \"\\\"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\\\"\" /f >nul 2>&1";
+                                system(addCmd.c_str());
+                                system("reg.exe unload HKLM\\OFFLINE_SOFTWARE >nul 2>&1");
+                                std::cout << "  [+] 오프라인 레지스트리(RunOnce) 1회성 자동실행 등록 완료!\n";
+                            }
+                        }
+
+                        // 3-2) 공용 시작프로그램(StartUp) 1회성 런처 배치파일 주입 (로그인 즉시 실행 보장)
+                        std::string startupDir = targetDrivePrefix + "\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp";
+                        system(("cmd.exe /c mkdir \"" + startupDir + "\" >nul 2>&1").c_str());
+                        std::string startupCmdPath = startupDir + "\\CJAutoProvisionerLauncher.cmd";
+                        std::ofstream startupOfs(startupCmdPath);
+                        if (startupOfs.is_open()) {
+                            startupOfs << "@echo off\r\n";
+                            startupOfs << "timeout /t 2 /nobreak >nul 2>&1\r\n";
+                            startupOfs << "if exist \"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\" (\r\n";
+                            startupOfs << "    start \"\" \"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\"\r\n";
+                            startupOfs << ")\r\n";
+                            startupOfs << "del \"%~f0\" >nul 2>&1\r\n";
+                            startupOfs.close();
+                            std::cout << "  [+] 공용 시작프로그램 1회용 자동실행 런처 등록 완료: " << startupCmdPath << "\n";
+                        }
+
+                        // 3-3) SetupComplete.cmd 등록 (Sysprep OOBE 환경 듀얼 안전망)
                         std::string setupCmdPath = scriptsDir + "\\SetupComplete.cmd";
                         std::ofstream scOfs(setupCmdPath, std::ios::app);
                         if (scOfs.is_open()) {
