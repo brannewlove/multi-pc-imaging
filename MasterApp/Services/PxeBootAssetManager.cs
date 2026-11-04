@@ -448,7 +448,17 @@ namespace MultiDeployOS.Master.Services
 
                 if (proc.ExitCode == 0)
                 {
-                    return (true, $"boot.wim에 PeImagingAgent.exe 및 자동 실행 startnet.cmd 주입이 완료되었습니다!\n대상 파일: {wimPath}");
+                    var agentFi = new FileInfo(agentPath);
+                    string provInfo = "";
+                    if (!string.IsNullOrEmpty(provPath) && File.Exists(provPath))
+                    {
+                        var provFi = new FileInfo(provPath);
+                        provInfo = $"\n- 사후 프로비저너: {provFi.Name} (수정일: {provFi.LastWriteTime:yyyy-MM-dd HH:mm:ss}, {provFi.Length / 1024} KB)";
+                    }
+                    return (true, $"boot.wim에 최신 에이전트 및 자동 실행 startnet.cmd 주입이 완료되었습니다!\n\n" +
+                                  $"[주입된 최신 에셋 정보]\n" +
+                                  $"- 클라이언트 에이전트: {agentFi.Name} (수정일: {agentFi.LastWriteTime:yyyy-MM-dd HH:mm:ss}, {agentFi.Length / 1024} KB){provInfo}\n\n" +
+                                  $"대상 파일: {wimPath}");
                 }
                 else
                 {
@@ -479,17 +489,16 @@ namespace MultiDeployOS.Master.Services
             {
                 Path.Combine(baseDir, "agent", "PeImagingAgent.exe"),
                 Path.Combine(baseDir, "PeImagingAgent.exe"),
-                Path.GetFullPath(Path.Combine(baseDir, "..", "client", "build", "Release", "PeImagingAgent.exe")),
                 Path.GetFullPath(Path.Combine(baseDir, "..", "client", "build", "PeImagingAgent.exe")),
-                Path.GetFullPath(Path.Combine(baseDir, "..", "..", "client", "build", "Release", "PeImagingAgent.exe")),
-                Path.GetFullPath(Path.Combine(baseDir, "..", "..", "client", "build", "PeImagingAgent.exe"))
+                Path.GetFullPath(Path.Combine(baseDir, "..", "client", "build", "Release", "PeImagingAgent.exe")),
+                Path.GetFullPath(Path.Combine(baseDir, "..", "..", "client", "build", "PeImagingAgent.exe")),
+                Path.GetFullPath(Path.Combine(baseDir, "..", "..", "client", "build", "Release", "PeImagingAgent.exe"))
             };
 
-            foreach (var c in candidates)
-            {
-                if (File.Exists(c)) return c;
-            }
-            return null;
+            return candidates
+                .Where(File.Exists)
+                .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
+                .FirstOrDefault();
         }
 
         private static string? ResolveProvisionerExecutablePath()
@@ -505,11 +514,10 @@ namespace MultiDeployOS.Master.Services
                 Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "tools", "CJAutoProvisioner", "dist", "CJAutoProvisioner.exe"))
             };
 
-            foreach (var c in candidates)
-            {
-                if (File.Exists(c)) return c;
-            }
-            return null;
+            return candidates
+                .Where(File.Exists)
+                .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
+                .FirstOrDefault();
         }
 
         private static string ResolveOrCreateStartnetScript()
