@@ -51,6 +51,11 @@ if not exist "bin\pxe" mkdir "bin\pxe"
 if exist "MasterApp\pxe\snponly.efi" copy /y "MasterApp\pxe\snponly.efi" "bin\pxe\" >nul 2>nul
 if exist "MasterApp\pxe\wimboot" copy /y "MasterApp\pxe\wimboot" "bin\pxe\" >nul 2>nul
 
+REM Build & Sync WinPE Agent (PeImagingAgent.exe)
+if exist "client\Build-Client-Agent.bat" (
+    call "client\Build-Client-Agent.bat"
+)
+
 REM Build & Sync Provisioner assets
 if exist "tools\CJAutoProvisioner\Build-Provisioner.bat" (
     call "tools\CJAutoProvisioner\Build-Provisioner.bat"
@@ -64,11 +69,10 @@ if exist "tools\CJAutoProvisioner\dist\CJAutoProvisioner.exe" (
     copy /y "tools\CJAutoProvisioner\dist\CJAutoProvisioner.exe" "bin\tools\CJAutoProvisioner\dist\" >nul 2>nul
 )
 if exist "tools\CJAutoProvisioner\SetupComplete.cmd" copy /y "tools\CJAutoProvisioner\SetupComplete.cmd" "bin\agent\" >nul 2>nul
-if not exist "bin\agent" mkdir "bin\agent"
-if exist "client\build\Release\PeImagingAgent.exe" (
-    copy /y "client\build\Release\PeImagingAgent.exe" "bin\agent\" >nul 2>nul
-) else if exist "client\build\PeImagingAgent.exe" (
+if exist "client\build\PeImagingAgent.exe" (
     copy /y "client\build\PeImagingAgent.exe" "bin\agent\" >nul 2>nul
+) else if exist "client\build\Release\PeImagingAgent.exe" (
+    copy /y "client\build\Release\PeImagingAgent.exe" "bin\agent\" >nul 2>nul
 )
 if exist "client\scripts\startnet.cmd" copy /y "client\scripts\startnet.cmd" "bin\agent\" >nul 2>nul
 
