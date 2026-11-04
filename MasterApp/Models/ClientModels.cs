@@ -127,6 +127,10 @@ namespace MultiDeployOS.Master.Models
         public string? CustomImageFileName { get; set; }
         public int? CustomImageIndex { get; set; }
 
+        // 무인 사후 프로비저닝 (CJ_ID 등) 속성
+        public string CjId { get; set; } = "";
+        public bool IsProvisionerEnabled { get; set; } = true;
+
         /// <summary>
         /// 실제 배포에 적용될 WIM 파일명 (별도 선택 시 우선, 없으면 자동 해결된 파일명)
         /// </summary>

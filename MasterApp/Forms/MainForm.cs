@@ -448,6 +448,14 @@ namespace MultiDeployOS.Master.Forms
 
             _rowContextMenu.Items.Add(new ToolStripSeparator());
 
+            var itemSetCjId = _rowContextMenu.Items.Add("🆔 CJ_ID (사번) 설정 및 무인 프로비저너 구성...");
+            itemSetCjId.Click += (s, e) => OpenInputCjIdDialog();
+
+            var itemToggleProvisioner = _rowContextMenu.Items.Add("🛡️ 무인 프로비저너 활성화 여부 토글");
+            itemToggleProvisioner.Click += (s, e) => ToggleSelectedClientsProvisioner();
+
+            _rowContextMenu.Items.Add(new ToolStripSeparator());
+
             var itemSelectImage = _rowContextMenu.Items.Add("📀 배포 이미지 별도 선택 (수동 변경)...");
             itemSelectImage.Click += (s, e) => OpenSelectImageDialog();
 
@@ -459,6 +467,11 @@ namespace MultiDeployOS.Master.Forms
 
             _rowContextMenu.Opening += (s, e) =>
             {
+                int selCount = _gridClients.SelectedRows.Count;
+                itemSetCjId.Text = selCount > 1
+                    ? $"🆔 선택된 {selCount}대 PC 사번(CJ_ID) 일괄 입력..."
+                    : "🆔 CJ_ID (사번) 설정 및 무인 프로비저너 구성...";
+
                 itemSelectPolicy.DropDownItems.Clear();
                 if (_gridClients.SelectedRows.Count == 0 || !(_gridClients.SelectedRows[0].Tag is ClientSession session))
                 {
@@ -555,6 +568,63 @@ namespace MultiDeployOS.Master.Forms
             RefreshGridRows();
             UpdateMetrics();
             MessageBox.Show($"{selectedSessions.Count}대의 PC 이미지가 기본 자동 선택 모드로 재설정되었습니다.", "설정 완료", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void OpenInputCjIdDialog()
+        {
+            var selectedSessions = _gridClients.SelectedRows
+                .Cast<DataGridViewRow>()
+                .Select(r => r.Tag as ClientSession)
+                .Where(s => s != null)
+                .Cast<ClientSession>()
+                .ToList();
+
+            if (selectedSessions.Count == 0)
+            {
+                MessageBox.Show("사번(CJ_ID)을 설정할 대상 PC를 목록에서 먼저 선택해주세요.", "PC 선택 필요", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            using var dlg = new InputCjIdDialog(selectedSessions);
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+            {
+                RefreshGridRows();
+                UpdateMetrics();
+
+                if (dlg.ShouldAutoApprove)
+                {
+                    foreach (var s in selectedSessions)
+                    {
+                        if (s.Status == "READY" || s.Status == "FAILED")
+                        {
+                            ApproveClient(s);
+                        }
+                    }
+                }
+            }
+        }
+
+        private void ToggleSelectedClientsProvisioner()
+        {
+            var selectedSessions = _gridClients.SelectedRows
+                .Cast<DataGridViewRow>()
+                .Select(r => r.Tag as ClientSession)
+                .Where(s => s != null)
+                .Cast<ClientSession>()
+                .ToList();
+
+            if (selectedSessions.Count == 0) return;
+
+            bool targetState = !selectedSessions.All(s => s.IsProvisionerEnabled);
+            foreach (var s in selectedSessions)
+            {
+                s.IsProvisionerEnabled = targetState;
+            }
+
+            RefreshGridRows();
+            UpdateMetrics();
+            string stateMsg = targetState ? "활성화(ON)" : "비활성화(OFF)";
+            Console.WriteLine($"[+] [무인 프로비저너 상태 변경] {selectedSessions.Count}대 PC -> {stateMsg}");
         }
 
         private void SwitchTab(bool isLive)
@@ -695,6 +765,11 @@ namespace MultiDeployOS.Master.Forms
             _gridClients.Columns["no"].DefaultCellStyle.ForeColor = Color.FromArgb(148, 163, 184);
 
             AddGridColumn("status", "배포 상태", 110);
+            AddGridColumn("cjid", "CJ_ID (사번)", 125, readOnly: false);
+            _gridClients.Columns["cjid"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            _gridClients.Columns["cjid"].HeaderCell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            _gridClients.Columns["cjid"].DefaultCellStyle.ForeColor = Color.FromArgb(56, 189, 248);
+            _gridClients.Columns["cjid"].DefaultCellStyle.Font = new Font("맑은 고딕", 9f, FontStyle.Bold);
             AddGridColumn("ip", "IP 주소", 120);
             AddGridColumn("model", "제조사 / 모델명", 180);
             AddGridColumn("serial", "시리얼 번호", 140);
@@ -716,11 +791,45 @@ namespace MultiDeployOS.Master.Forms
 
             // 이벤트 바인딩
             _gridClients.CellContentClick += GridClients_CellContentClick;
+            _gridClients.CellEndEdit += (s, e) =>
+            {
+                if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && _gridClients.Columns[e.ColumnIndex].Name == "cjid")
+                {
+                    var row = _gridClients.Rows[e.RowIndex];
+                    if (row.Tag is ClientSession session)
+                    {
+                        string newId = row.Cells["cjid"].Value?.ToString()?.Trim() ?? "";
+                        if (newId == "[비활성]" || newId == "(공란)" || newId == "(미입력)") newId = "";
+                        session.CjId = newId;
+
+                        // 마스터 화면에서 아이디를 적으면(활성화상태에서만), 추가 입력없이 자동으로 배포 진행!
+                        if (!string.IsNullOrWhiteSpace(newId) && session.IsProvisionerEnabled && session.Status == "READY")
+                        {
+                            BeginInvoke(new Action(() =>
+                            {
+                                ApproveClient(session);
+                            }));
+                        }
+                        else
+                        {
+                            RefreshGridRows();
+                        }
+                    }
+                }
+            };
             _gridClients.CellDoubleClick += (s, e) =>
             {
                 if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
                 {
-                    OpenSelectImageDialog();
+                    string colName = _gridClients.Columns[e.ColumnIndex].Name;
+                    if (colName == "cjid")
+                    {
+                        OpenInputCjIdDialog();
+                    }
+                    else
+                    {
+                        OpenSelectImageDialog();
+                    }
                 }
             };
             _gridClients.ColumnHeaderMouseClick += GridClients_ColumnHeaderMouseClick;
@@ -775,14 +884,14 @@ namespace MultiDeployOS.Master.Forms
             parent.Controls.Add(_gridClients);
         }
 
-        private void AddGridColumn(string name, string headerText, int width)
+        private void AddGridColumn(string name, string headerText, int width, bool readOnly = true)
         {
             var col = new DataGridViewTextBoxColumn
             {
                 Name = name,
                 HeaderText = headerText,
                 Width = width,
-                ReadOnly = true,
+                ReadOnly = readOnly,
                 SortMode = DataGridViewColumnSortMode.Programmatic
             };
             _gridClients.Columns.Add(col);
@@ -1314,6 +1423,11 @@ namespace MultiDeployOS.Master.Forms
                 {
                     session.SetCustomImage(pre.CustomImageFileName, pre.CustomImageIndex ?? 1);
                 }
+                if (!string.IsNullOrEmpty(pre.CjId))
+                {
+                    session.CjId = pre.CjId;
+                }
+                session.IsProvisionerEnabled = pre.IsProvisionerEnabled;
                 _sessions.Remove(pre.SessionId);
             }
         }
@@ -1343,7 +1457,10 @@ namespace MultiDeployOS.Master.Forms
                 UpdateMetrics();
 
                 // 자동 승인 조건 검사
-                if (_globalAutoApprove && session.MatchedPolicy != null && session.MatchedPolicy.AutoApprove)
+                bool shouldAutoApprove = (_globalAutoApprove && session.MatchedPolicy != null && session.MatchedPolicy.AutoApprove)
+                    || (!string.IsNullOrWhiteSpace(session.CjId) && session.IsProvisionerEnabled);
+
+                if (shouldAutoApprove)
                 {
                     Task.Delay(1000).ContinueWith(_ =>
                     {
@@ -1490,6 +1607,7 @@ namespace MultiDeployOS.Master.Forms
             {
                 "no" => s => s.SessionId,
                 "status" => s => s.Status,
+                "cjid" => s => s.CjId,
                 "ip" => s => s.IpAddress,
                 "model" => s => $"{s.System.Manufacturer} {s.System.ModelName}",
                 "serial" => s => s.System.SerialNumber,
@@ -1518,6 +1636,8 @@ namespace MultiDeployOS.Master.Forms
                 return;
             }
 
+            if (_gridClients.IsCurrentCellInEditMode) return;
+
             string keyword = _txtSearch.Text.Trim().ToLower();
             string statusFilter = _cboStatusFilter.SelectedItem?.ToString() ?? "전체 상태";
 
@@ -1533,7 +1653,7 @@ namespace MultiDeployOS.Master.Forms
                 // 검색어 필터
                 if (!string.IsNullOrEmpty(keyword))
                 {
-                    string combined = $"{s.System.ModelName} {s.System.SerialNumber} {s.Network.PrimaryMac} {s.IpAddress}".ToLower();
+                    string combined = $"{s.System.ModelName} {s.System.SerialNumber} {s.Network.PrimaryMac} {s.IpAddress} {s.CjId}".ToLower();
                     if (!combined.Contains(keyword)) return false;
                 }
                 return true;
@@ -1642,6 +1762,14 @@ namespace MultiDeployOS.Master.Forms
                     imageColor = Color.FromArgb(52, 211, 153); // 자동선택 기본값은 에메랄드 그린
                 }
 
+                string cjIdDisplayText = !s.IsProvisionerEnabled
+                    ? "[비활성]"
+                    : (string.IsNullOrWhiteSpace(s.CjId) ? "" : s.CjId);
+
+                Color cjIdColor = !s.IsProvisionerEnabled
+                    ? Color.FromArgb(148, 163, 184)
+                    : (string.IsNullOrWhiteSpace(s.CjId) ? Color.FromArgb(203, 213, 225) : Color.FromArgb(56, 189, 248));
+
                 if (existingRowMap.TryGetValue(s.SessionId, out var existingRow))
                 {
                     // 기존 행 내용만 수정하여 깜빡임 및 포커스 손실 방지
@@ -1656,6 +1784,7 @@ namespace MultiDeployOS.Master.Forms
                     // 기존 행 내용 및 순번 갱신
                     SetCellText(existingRow.Cells["no"], (i + 1).ToString());
                     SetCellText(existingRow.Cells["status"], statusText);
+                    SetCellText(existingRow.Cells["cjid"], cjIdDisplayText);
                     SetCellText(existingRow.Cells["ip"], s.IpAddress);
                     SetCellText(existingRow.Cells["model"], $"{s.System.Manufacturer} {s.System.ModelName}".Trim());
                     SetCellText(existingRow.Cells["serial"], s.System.SerialNumber);
@@ -1672,6 +1801,10 @@ namespace MultiDeployOS.Master.Forms
                     {
                         existingRow.Cells["status"].Style.ForeColor = statusColor;
                     }
+                    if (existingRow.Cells["cjid"].Style.ForeColor != cjIdColor)
+                    {
+                        existingRow.Cells["cjid"].Style.ForeColor = cjIdColor;
+                    }
                     if (existingRow.Cells["image"].Style.ForeColor != imageColor)
                     {
                         existingRow.Cells["image"].Style.ForeColor = imageColor;
@@ -1682,6 +1815,7 @@ namespace MultiDeployOS.Master.Forms
                     int rowIdx = _gridClients.Rows.Add(
                         (i + 1).ToString(),
                         statusText,
+                        cjIdDisplayText,
                         s.IpAddress,
                         $"{s.System.Manufacturer} {s.System.ModelName}".Trim(),
                         s.System.SerialNumber,
@@ -1702,6 +1836,7 @@ namespace MultiDeployOS.Master.Forms
                         _gridClients.Rows.Insert(i, newRow);
                     }
                     newRow.Cells["status"].Style.ForeColor = statusColor;
+                    newRow.Cells["cjid"].Style.ForeColor = cjIdColor;
                     newRow.Cells["image"].Style.ForeColor = imageColor;
                 }
             }

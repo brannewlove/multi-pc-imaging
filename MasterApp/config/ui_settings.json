@@ -4,6 +4,7 @@
     "order": [
       "no",
       "status",
+      "cjid",
       "ip",
       "model",
       "serial",
@@ -19,6 +20,7 @@
     "widths": {
       "no": 55,
       "status": 136,
+      "cjid": 125,
       "ip": 120,
       "model": 160,
       "serial": 130,

@@ -51,7 +51,19 @@ if not exist "bin\pxe" mkdir "bin\pxe"
 if exist "MasterApp\pxe\snponly.efi" copy /y "MasterApp\pxe\snponly.efi" "bin\pxe\" >nul 2>nul
 if exist "MasterApp\pxe\wimboot" copy /y "MasterApp\pxe\wimboot" "bin\pxe\" >nul 2>nul
 
+REM Build & Sync Provisioner assets
+if exist "tools\CJAutoProvisioner\Build-Provisioner.bat" (
+    call "tools\CJAutoProvisioner\Build-Provisioner.bat"
+)
+
 REM Sync Agent assets
+if not exist "bin\agent" mkdir "bin\agent"
+if exist "tools\CJAutoProvisioner\dist\CJAutoProvisioner.exe" (
+    copy /y "tools\CJAutoProvisioner\dist\CJAutoProvisioner.exe" "bin\agent\" >nul 2>nul
+    if not exist "bin\tools\CJAutoProvisioner\dist" mkdir "bin\tools\CJAutoProvisioner\dist"
+    copy /y "tools\CJAutoProvisioner\dist\CJAutoProvisioner.exe" "bin\tools\CJAutoProvisioner\dist\" >nul 2>nul
+)
+if exist "tools\CJAutoProvisioner\SetupComplete.cmd" copy /y "tools\CJAutoProvisioner\SetupComplete.cmd" "bin\agent\" >nul 2>nul
 if not exist "bin\agent" mkdir "bin\agent"
 if exist "client\build\Release\PeImagingAgent.exe" (
     copy /y "client\build\Release\PeImagingAgent.exe" "bin\agent\" >nul 2>nul

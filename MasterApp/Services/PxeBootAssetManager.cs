@@ -394,6 +394,11 @@ namespace MultiDeployOS.Master.Services
             sb.AppendLine("    exit /b 20");
             sb.AppendLine(")");
             sb.AppendLine($"copy /y \"{startnetPath}\" \"{mountDir}\\Windows\\System32\\startnet.cmd\" >> \"{logFile}\" 2>&1");
+            string? provPath = ResolveProvisionerExecutablePath();
+            if (!string.IsNullOrEmpty(provPath) && File.Exists(provPath))
+            {
+                sb.AppendLine($"copy /y \"{provPath}\" \"{mountDir}\\Windows\\System32\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
+            }
             sb.AppendLine($"echo [3/3] Saving & Unmounting boot.wim ... >> \"{logFile}\"");
             sb.AppendLine($"dism /Unmount-Image /MountDir:\"{mountDir}\" /Commit >> \"{logFile}\" 2>&1");
             sb.AppendLine("if errorlevel 1 exit /b 30");
@@ -478,6 +483,26 @@ namespace MultiDeployOS.Master.Services
                 Path.GetFullPath(Path.Combine(baseDir, "..", "client", "build", "PeImagingAgent.exe")),
                 Path.GetFullPath(Path.Combine(baseDir, "..", "..", "client", "build", "Release", "PeImagingAgent.exe")),
                 Path.GetFullPath(Path.Combine(baseDir, "..", "..", "client", "build", "PeImagingAgent.exe"))
+            };
+
+            foreach (var c in candidates)
+            {
+                if (File.Exists(c)) return c;
+            }
+            return null;
+        }
+
+        private static string? ResolveProvisionerExecutablePath()
+        {
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string[] candidates =
+            {
+                Path.Combine(baseDir, "agent", "CJAutoProvisioner.exe"),
+                Path.Combine(baseDir, "tools", "CJAutoProvisioner", "dist", "CJAutoProvisioner.exe"),
+                Path.Combine(baseDir, "CJAutoProvisioner.exe"),
+                Path.GetFullPath(Path.Combine(baseDir, "..", "tools", "CJAutoProvisioner", "dist", "CJAutoProvisioner.exe")),
+                Path.GetFullPath(Path.Combine(baseDir, "..", "..", "tools", "CJAutoProvisioner", "dist", "CJAutoProvisioner.exe")),
+                Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "tools", "CJAutoProvisioner", "dist", "CJAutoProvisioner.exe"))
             };
 
             foreach (var c in candidates)

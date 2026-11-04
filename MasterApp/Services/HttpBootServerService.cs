@@ -305,6 +305,31 @@ namespace MultiDeployOS.Master.Services
                         }
                     }
 
+                    // 6. /agent/<file> 또는 /tools/<file> (클라이언트 에이전트 및 사후 프로비저너 배포)
+                    if (pathPart.StartsWith("/agent/", StringComparison.OrdinalIgnoreCase) ||
+                        pathPart.StartsWith("/tools/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string subFile = Path.GetFileName(Uri.UnescapeDataString(pathPart));
+                        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                        string[] candidateDirs = new[]
+                        {
+                            Path.Combine(baseDir, "agent"),
+                            Path.Combine(baseDir, "tools"),
+                            Path.Combine(baseDir, "tools", "CJAutoProvisioner", "dist"),
+                            Path.Combine(baseDir, "..", "..", "..", "tools", "CJAutoProvisioner", "dist"),
+                            baseDir
+                        };
+                        foreach (var dir in candidateDirs)
+                        {
+                            string full = Path.Combine(dir, subFile);
+                            if (File.Exists(full))
+                            {
+                                await StreamDiskFileAsync(stream, full, isHead, rangeHeader, onChunkProgress: null, token);
+                                return;
+                            }
+                        }
+                    }
+
                     await SendSimpleResponseAsync(stream, "404 Not Found", "text/plain", "Not Found", isHead, token);
                 }
                 catch (OperationCanceledException) { }

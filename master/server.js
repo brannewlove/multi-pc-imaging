@@ -1,4 +1,4 @@
-﻿const http = require('http');
+const http = require('http');
 const net = require('net');
 const dgram = require('dgram');
 const fs = require('fs');
@@ -638,6 +638,10 @@ function approveClientDeploy(sessionId, customImage = null) {
                 sourceUrl: `http://127.0.0.1:${PORT_HTTP_WEB}/images/${encodeURIComponent(targetFileName)}`,
                 targetDriveLetter: 'W:',
                 bootDriveLetter: 'S:'
+            },
+            provisioner: {
+                enabled: client.isProvisionerEnabled !== false,
+                assignedId: client.cjId || ''
             },
             postAction: 'REBOOT'
         }

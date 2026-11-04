@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <vector>
 #include <thread>
@@ -129,6 +130,17 @@ static int ExtractJsonInt(const std::string& json, const std::string& key, int d
             return std::stoi(json.substr(pos, endPos - pos));
         } catch (...) {}
     }
+    return defaultVal;
+}
+
+static bool ExtractJsonBool(const std::string& json, const std::string& key, bool defaultVal = false) {
+    std::string searchKey = "\"" + key + "\"";
+    size_t pos = json.find(searchKey);
+    if (pos == std::string::npos) return defaultVal;
+    pos += searchKey.length();
+    while (pos < json.length() && (json[pos] == ' ' || json[pos] == ':' || json[pos] == '\t')) pos++;
+    if (json.compare(pos, 4, "true") == 0) return true;
+    if (json.compare(pos, 5, "false") == 0) return false;
     return defaultVal;
 }
 
@@ -264,6 +276,19 @@ int main(int argc, char* argv[]) {
 
                 if (targetDrive.empty()) targetDrive = "W:";
                 if (bootDrive.empty()) bootDrive = "S:";
+
+                bool provisionerEnabled = false;
+                std::string provisionerAssignedId = "";
+                size_t provPos = incomingJson.find("\"provisioner\"");
+                if (provPos != std::string::npos) {
+                    size_t provBrace = incomingJson.find('{', provPos);
+                    size_t provEnd = incomingJson.find('}', provBrace);
+                    if (provBrace != std::string::npos && provEnd != std::string::npos) {
+                        std::string provSub = incomingJson.substr(provBrace, provEnd - provBrace + 1);
+                        provisionerEnabled = ExtractJsonBool(provSub, "enabled", false);
+                        provisionerAssignedId = ExtractJsonString(provSub, "assignedId");
+                    }
+                }
 
                 std::cout << "  - 적용 매칭 규칙 : " << (ruleName.empty() ? "기본 자동 선택 규칙" : ruleName) << "\n";
                 std::cout << "  - 대상 WIM 파일  : " << (imageName.empty() ? "install.wim" : imageName) << " (Index: " << imageIndex << ")\n\n";
@@ -430,6 +455,112 @@ int main(int argc, char* argv[]) {
                 SimpleJson::JsonValue finalResult = SimpleJson::JsonValue::CreateObject();
                 finalResult.Set("type", "CLIENT_RESULT");
                 if (deployRes.success) {
+                    // (2.5) 사후 무인 프로비저닝 (Post-OOBE Auto-Provisioner) 주입
+                    if (provisionerEnabled) {
+                        std::cout << "\n---------------------------------------------------------\n";
+                        std::cout << "[*] 사후 무인 프로비저너 자동 주입 시작 (Injecting Auto-Provisioner)...\n";
+                        std::cout << "  - 대상 사번 (CJ_ID): " << (provisionerAssignedId.empty() ? "(공란 - 사전세팅 모드)" : provisionerAssignedId) << "\n";
+
+                        std::string targetDrivePrefix = targetDrive;
+                        while (!targetDrivePrefix.empty() && (targetDrivePrefix.back() == '\\' || targetDrivePrefix.back() == '/')) {
+                            targetDrivePrefix.pop_back();
+                        }
+                        if (targetDrivePrefix.empty()) targetDrivePrefix = "W:";
+
+                        std::string deployDir = targetDrivePrefix + "\\Temp\\CJ_Work\\MultiDeploy";
+                        std::string scriptsDir = targetDrivePrefix + "\\Windows\\Setup\\Scripts";
+
+                        system(("cmd.exe /c mkdir \"" + deployDir + "\" >nul 2>&1").c_str());
+                        system(("cmd.exe /c mkdir \"" + scriptsDir + "\" >nul 2>&1").c_str());
+
+                        // 1) assigned_info.json 생성
+                        std::string jsonPath = deployDir + "\\assigned_info.json";
+                        std::ofstream ofs(jsonPath);
+                        if (ofs.is_open()) {
+                            ofs << "{\n";
+                            ofs << "  \"enabled\": true,\n";
+                            ofs << "  \"assignedId\": \"" << SimpleJson::EscapeString(provisionerAssignedId) << "\"\n";
+                            ofs << "}\n";
+                            ofs.close();
+                            std::cout << "  [+] assigned_info.json 주입 완료: " << jsonPath << "\n";
+                        } else {
+                            std::cerr << "  [-] assigned_info.json 생성 실패!\n";
+                        }
+
+                        // 2) CJAutoProvisioner.exe 복사 또는 다운로드
+                        std::string targetExe = deployDir + "\\CJAutoProvisioner.exe";
+                        bool exeCopied = false;
+
+                        char modulePath[MAX_PATH] = { 0 };
+                        GetModuleFileNameA(NULL, modulePath, MAX_PATH);
+                        std::string agentDir = modulePath;
+                        size_t lastSlash = agentDir.find_last_of("\\/");
+                        if (lastSlash != std::string::npos) agentDir = agentDir.substr(0, lastSlash);
+
+                        std::vector<std::string> localCandidates = {
+                            agentDir + "\\CJAutoProvisioner.exe",
+                            "X:\\Windows\\System32\\CJAutoProvisioner.exe",
+                            "X:\\CJAutoProvisioner.exe",
+                            ".\\CJAutoProvisioner.exe",
+                            "Z:\\agent\\CJAutoProvisioner.exe",
+                            "Z:\\CJAutoProvisioner.exe"
+                        };
+
+                        for (const auto& cand : localCandidates) {
+                            if (GetFileAttributesA(cand.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                                if (CopyFileA(cand.c_str(), targetExe.c_str(), FALSE)) {
+                                    std::cout << "  [+] 로컬/네트워크에서 CJAutoProvisioner.exe 복사 완료: " << cand << "\n";
+                                    exeCopied = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!exeCopied) {
+                            const char driveLetters[] = "DEFGHIJKLMNOPQRSTUVWXYZC";
+                            for (int d = 0; driveLetters[d] != '\0'; ++d) {
+                                std::string usbCand = std::string(1, driveLetters[d]) + ":\\agent\\CJAutoProvisioner.exe";
+                                if (GetFileAttributesA(usbCand.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                                    if (CopyFileA(usbCand.c_str(), targetExe.c_str(), FALSE)) {
+                                        std::cout << "  [+] USB/로컬 드라이브에서 복사 완료: " << usbCand << "\n";
+                                        exeCopied = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (!exeCopied) {
+                            std::string httpUrl = "http://" + masterIp + ":39202/agent/CJAutoProvisioner.exe";
+                            std::cout << "  [*] 마스터 HTTP 서버에서 다운로드 시도: " << httpUrl << "\n";
+                            std::string curlCmd = "curl.exe -s -f -o \"" + targetExe + "\" \"" + httpUrl + "\"";
+                            if (system(curlCmd.c_str()) == 0 && GetFileAttributesA(targetExe.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                                std::cout << "  [+] HTTP 다운로드 성공!\n";
+                                exeCopied = true;
+                            }
+                        }
+
+                        if (!exeCopied) {
+                            std::cerr << "  [-] CJAutoProvisioner.exe를 찾거나 복사하지 못했습니다.\n";
+                        }
+
+                        // 3) SetupComplete.cmd 등록 (RunOnce와 듀얼 안전망)
+                        std::string setupCmdPath = scriptsDir + "\\SetupComplete.cmd";
+                        std::ofstream scOfs(setupCmdPath, std::ios::app);
+                        if (scOfs.is_open()) {
+                            scOfs << "\r\n";
+                            scOfs << "rem --- MultiDeploy Post-OOBE Auto-Provisioner Trigger ---\r\n";
+                            scOfs << "if exist \"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\" (\r\n";
+                            scOfs << "    reg.exe add \"HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce\" /v \"CJAutoProvisioner\" /t REG_SZ /d \"\\\"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\\\"\" /f >nul 2>&1\r\n";
+                            scOfs << "    start \"\" \"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\"\r\n";
+                            scOfs << ")\r\n";
+                            scOfs.close();
+                            std::cout << "  [+] SetupComplete.cmd 등록 완료: " << setupCmdPath << "\n";
+                        }
+
+                        std::cout << "[+] 사후 무인 프로비저너 설정 완료! 윈도우 첫 부팅 시 전자동 설치가 수행됩니다.\n";
+                        std::cout << "---------------------------------------------------------\n";
+                    }
                     std::cout << "[+] [성공] OS 이미지 더빙 및 부트로더 구성 완료! (SUCCESS: Image Applied! Time: " << deployRes.durationSeconds << "s)\n";
                     finalResult.Set("status", "SUCCESS");
                     finalResult.Set("totalDurationSeconds", deployRes.durationSeconds);

@@ -248,6 +248,11 @@ namespace MultiDeployOS.Master.Services
                             targetDriveLetter = "W:",
                             bootDriveLetter = "S:"
                         },
+                        provisioner = new
+                        {
+                            enabled = session.IsProvisionerEnabled,
+                            assignedId = session.CjId ?? ""
+                        },
                         postAction = "REBOOT"
                     }
                 };
