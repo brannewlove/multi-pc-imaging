@@ -390,46 +390,31 @@ namespace MultiDeployOS.Master.Services
             sb.AppendLine($"echo Target WIM : \"{wimPath}\" >> \"{logFile}\"");
             sb.AppendLine($"echo Agent Src  : \"{agentPath}\" >> \"{logFile}\"");
             sb.AppendLine($"echo ======================================================== >> \"{logFile}\"");
+            if (!string.IsNullOrEmpty(provPath))
+            {
+                sb.AppendLine($"echo Prov Src   : \"{provPath}\" >> \"{logFile}\"");
+            }
+            sb.AppendLine($"echo ======================================================== >> \"{logFile}\"");
             sb.AppendLine($"attrib -r -s -h \"{wimPath}\" >nul 2>&1");
-            sb.AppendLine("dism /Cleanup-Wim >nul 2>&1");
-            sb.AppendLine("set PATCHED_COUNT=0");
-            sb.AppendLine("for /L %%i in (1,1,4) do (");
-            sb.AppendLine($"    set \"CUR_MOUNT={mountBase}_%%i\"");
-            sb.AppendLine("    if exist \"!CUR_MOUNT!\" rd /s /q \"!CUR_MOUNT!\" >nul 2>&1");
-            sb.AppendLine("    mkdir \"!CUR_MOUNT!\" >nul 2>&1");
-            sb.AppendLine($"    echo [Index %%i] Mounting image to !CUR_MOUNT! ... >> \"{logFile}\"");
-            sb.AppendLine($"    dism /Mount-Image /ImageFile:\"{wimPath}\" /Index:%%i /MountDir:\"!CUR_MOUNT!\" >> \"{logFile}\" 2>&1");
-            sb.AppendLine("    if not errorlevel 1 (");
-            sb.AppendLine($"        echo [Index %%i] Mount successful! Injecting binaries... >> \"{logFile}\"");
-            sb.AppendLine($"        copy /y \"{agentPath}\" \"!CUR_MOUNT!\\Windows\\System32\\PeImagingAgent.exe\" >> \"{logFile}\" 2>&1");
-            sb.AppendLine($"        copy /y \"{agentPath}\" \"!CUR_MOUNT!\\PeImagingAgent.exe\" >> \"{logFile}\" 2>&1");
-            sb.AppendLine($"        copy /y \"{startnetPath}\" \"!CUR_MOUNT!\\Windows\\System32\\startnet.cmd\" >> \"{logFile}\" 2>&1");
-            if (!string.IsNullOrEmpty(provPath) && File.Exists(provPath))
-            {
-                sb.AppendLine($"        copy /y \"{provPath}\" \"!CUR_MOUNT!\\Windows\\System32\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
-                sb.AppendLine($"        copy /y \"{provPath}\" \"!CUR_MOUNT!\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
-            }
-            sb.AppendLine("        rem WIM 내부 어디든 기존 PeImagingAgent.exe가 있으면 최신본으로 전수 덮어쓰기");
-            sb.AppendLine("        for /R \"!CUR_MOUNT!\" %%F in (PeImagingAgent.exe) do (");
-            sb.AppendLine($"            echo  - [REPLACE] Found %%F. Overwriting... >> \"{logFile}\"");
-            sb.AppendLine($"            copy /y \"{agentPath}\" \"%%F\" >> \"{logFile}\" 2>&1");
-            sb.AppendLine("        )");
-            if (!string.IsNullOrEmpty(provPath) && File.Exists(provPath))
-            {
-                sb.AppendLine("        for /R \"!CUR_MOUNT!\" %%F in (CJAutoProvisioner.exe) do (");
-                sb.AppendLine($"            copy /y \"{provPath}\" \"%%F\" >> \"{logFile}\" 2>&1");
-                sb.AppendLine("        )");
-            }
-            sb.AppendLine($"        echo [Index %%i] Committing changes & unmounting... >> \"{logFile}\"");
-            sb.AppendLine("        dism /Unmount-Image /MountDir:\"!CUR_MOUNT!\" /Commit >> \"{logFile}\" 2>&1");
-            sb.AppendLine("        rd /s /q \"!CUR_MOUNT!\" >nul 2>&1");
-            sb.AppendLine("        set /a PATCHED_COUNT+=1");
-            sb.AppendLine("    ) else (");
-            sb.AppendLine("        rd /s /q \"!CUR_MOUNT!\" >nul 2>&1");
-            sb.AppendLine($"        echo [Index %%i] Image not present in WIM. Skipping. >> \"{logFile}\"");
-            sb.AppendLine("    )");
+            sb.AppendLine($"echo [Pre-Check] Discarding any stale mount points... >> \"{logFile}\"");
+            sb.AppendLine("for /d %%D in (\"%TEMP%\\MD_WinPEMount_*\") do (");
+            sb.AppendLine($"    echo  - Cleaning stale mount %%D >> \"{logFile}\"");
+            sb.AppendLine($"    dism /Unmount-Image /MountDir:\"%%D\" /Discard >> \"{logFile}\" 2>&1");
+            sb.AppendLine("    rd /s /q \"%%D\" >nul 2>&1");
             sb.AppendLine(")");
-
+            sb.AppendLine($"echo [Pre-Check] Executing DISM Cleanup-Wim... >> \"{logFile}\"");
+            sb.AppendLine($"dism /Cleanup-Wim >> \"{logFile}\" 2>&1");
+            sb.AppendLine();
+            sb.AppendLine("set PATCHED_COUNT=0");
+            sb.AppendLine();
+            sb.AppendLine("rem 1번 인덱스부터 최대 4번 인덱스까지 주입 처리 (인덱스 부재 시 안전하게 건너뜀)");
+            sb.AppendLine("for /L %%i in (1,1,4) do (");
+            sb.AppendLine("    call :ProcessIndex %%i");
+            sb.AppendLine(")");
+            sb.AppendLine();
+            sb.AppendLine($"echo -------------------------------------------------------- >> \"{logFile}\"");
+            sb.AppendLine($"echo Total committed WIM indexes: !PATCHED_COUNT! >> \"{logFile}\"");
+            sb.AppendLine();
             sb.AppendLine($"for %%P in (\"{wimPath}\") do (");
             sb.AppendLine("    set \"WIM_DIR=%%~dpP\"");
             sb.AppendLine("    set \"WIM_DRV=%%~dP\"");
@@ -437,15 +422,78 @@ namespace MultiDeployOS.Master.Services
             sb.AppendLine($"echo Checking external folders for: !WIM_DRV! and !WIM_DIR! >> \"{logFile}\"");
             sb.AppendLine($"if exist \"!WIM_DRV!\\agent\\\" copy /y \"{agentPath}\" \"!WIM_DRV!\\agent\\PeImagingAgent.exe\" >> \"{logFile}\" 2>&1");
             sb.AppendLine($"if exist \"!WIM_DRV!\\\" copy /y \"{agentPath}\" \"!WIM_DRV!\\PeImagingAgent.exe\" >> \"{logFile}\" 2>&1");
-            sb.AppendLine($"if exist \"!WIM_DIR!\\PeImagingAgent.exe\" copy /y \"{agentPath}\" \"!WIM_DIR!\\PeImagingAgent.exe\" >> \"{logFile}\" 2>&1");
-            sb.AppendLine($"if exist \"!WIM_DIR!\\agent\\PeImagingAgent.exe\" copy /y \"{agentPath}\" \"!WIM_DIR!\\agent\\PeImagingAgent.exe\" >> \"{logFile}\" 2>&1");
+            sb.AppendLine($"if exist \"!WIM_DIR!\\\" (");
+            sb.AppendLine($"    copy /y \"{agentPath}\" \"!WIM_DIR!\\PeImagingAgent.exe\" >> \"{logFile}\" 2>&1");
+            sb.AppendLine("    if not exist \"!WIM_DIR!\\agent\" mkdir \"!WIM_DIR!\\agent\" >nul 2>&1");
+            sb.AppendLine($"    copy /y \"{agentPath}\" \"!WIM_DIR!\\agent\\PeImagingAgent.exe\" >> \"{logFile}\" 2>&1");
+            sb.AppendLine(")");
             if (!string.IsNullOrEmpty(provPath) && File.Exists(provPath))
             {
                 sb.AppendLine($"if exist \"!WIM_DRV!\\agent\\\" copy /y \"{provPath}\" \"!WIM_DRV!\\agent\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
                 sb.AppendLine($"if exist \"!WIM_DRV!\\\" copy /y \"{provPath}\" \"!WIM_DRV!\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
-                sb.AppendLine($"if exist \"!WIM_DIR!\\CJAutoProvisioner.exe\" copy /y \"{provPath}\" \"!WIM_DIR!\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
+                sb.AppendLine($"if exist \"!WIM_DIR!\\\" (");
+                sb.AppendLine($"    copy /y \"{provPath}\" \"!WIM_DIR!\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
+                sb.AppendLine($"    copy /y \"{provPath}\" \"!WIM_DIR!\\agent\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
+                sb.AppendLine(")");
             }
-            sb.AppendLine("if !PATCHED_COUNT! EQU 0 exit /b 10");
+            sb.AppendLine();
+            sb.AppendLine("if !PATCHED_COUNT! EQU 0 (");
+            sb.AppendLine($"    echo [ERROR] No WIM indexes were successfully committed! >> \"{logFile}\"");
+            sb.AppendLine("    exit /b 10");
+            sb.AppendLine(")");
+            sb.AppendLine($"echo [SUCCESS] All target images in boot.wim successfully updated! >> \"{logFile}\"");
+            sb.AppendLine("exit /b 0");
+            sb.AppendLine();
+            sb.AppendLine(":ProcessIndex");
+            sb.AppendLine("set \"IDX=%~1\"");
+            sb.AppendLine($"set \"CUR_MOUNT={mountBase}_%IDX%\"");
+            sb.AppendLine("if exist \"!CUR_MOUNT!\" (");
+            sb.AppendLine($"    dism /Unmount-Image /MountDir:\"!CUR_MOUNT!\" /Discard >nul 2>&1");
+            sb.AppendLine("    rd /s /q \"!CUR_MOUNT!\" >nul 2>&1");
+            sb.AppendLine(")");
+            sb.AppendLine("mkdir \"!CUR_MOUNT!\" >nul 2>&1");
+            sb.AppendLine($"echo -------------------------------------------------------- >> \"{logFile}\"");
+            sb.AppendLine($"echo [Index %IDX%] Attempting to mount image... >> \"{logFile}\"");
+            sb.AppendLine($"dism /Mount-Image /ImageFile:\"{wimPath}\" /Index:%IDX% /MountDir:\"!CUR_MOUNT!\" >> \"{logFile}\" 2>&1");
+            sb.AppendLine("if ERRORLEVEL 1 (");
+            sb.AppendLine($"    echo [Index %IDX%] Image not present in WIM or mount failed. Skipping. >> \"{logFile}\"");
+            sb.AppendLine("    rd /s /q \"!CUR_MOUNT!\" >nul 2>&1");
+            sb.AppendLine("    exit /b 0");
+            sb.AppendLine(")");
+            sb.AppendLine($"echo [Index %IDX%] Mount successful! Injecting binaries... >> \"{logFile}\"");
+            sb.AppendLine("if not exist \"!CUR_MOUNT!\\Windows\\System32\" mkdir \"!CUR_MOUNT!\\Windows\\System32\" >nul 2>&1");
+            sb.AppendLine($"copy /y \"{agentPath}\" \"!CUR_MOUNT!\\Windows\\System32\\PeImagingAgent.exe\" >> \"{logFile}\" 2>&1");
+            sb.AppendLine($"copy /y \"{agentPath}\" \"!CUR_MOUNT!\\PeImagingAgent.exe\" >> \"{logFile}\" 2>&1");
+            sb.AppendLine($"copy /y \"{startnetPath}\" \"!CUR_MOUNT!\\Windows\\System32\\startnet.cmd\" >> \"{logFile}\" 2>&1");
+            if (!string.IsNullOrEmpty(provPath) && File.Exists(provPath))
+            {
+                sb.AppendLine($"copy /y \"{provPath}\" \"!CUR_MOUNT!\\Windows\\System32\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
+                sb.AppendLine($"copy /y \"{provPath}\" \"!CUR_MOUNT!\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
+            }
+            sb.AppendLine("if exist \"!CUR_MOUNT!\\agent\\\" (");
+            sb.AppendLine($"    copy /y \"{agentPath}\" \"!CUR_MOUNT!\\agent\\PeImagingAgent.exe\" >> \"{logFile}\" 2>&1");
+            if (!string.IsNullOrEmpty(provPath) && File.Exists(provPath))
+            {
+                sb.AppendLine($"    copy /y \"{provPath}\" \"!CUR_MOUNT!\\agent\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
+            }
+            sb.AppendLine(")");
+            sb.AppendLine("rem 백신 파일 필터 잠금 방지를 위해 1초 대기 후 변경사항 영구 저장(Commit) 및 언마운트");
+            sb.AppendLine("ping 127.0.0.1 -n 2 >nul 2>&1");
+            sb.AppendLine($"echo [Index %IDX%] Committing changes & unmounting... >> \"{logFile}\"");
+            sb.AppendLine($"dism /Unmount-Image /MountDir:\"!CUR_MOUNT!\" /Commit >> \"{logFile}\" 2>&1");
+            sb.AppendLine("if ERRORLEVEL 1 (");
+            sb.AppendLine($"    echo [Index %IDX%] Retrying unmount commit in 2 seconds... >> \"{logFile}\"");
+            sb.AppendLine("    ping 127.0.0.1 -n 3 >nul 2>&1");
+            sb.AppendLine($"    dism /Unmount-Image /MountDir:\"!CUR_MOUNT!\" /Commit >> \"{logFile}\" 2>&1");
+            sb.AppendLine(")");
+            sb.AppendLine("if ERRORLEVEL 1 (");
+            sb.AppendLine($"    echo [Index %IDX%] ERROR: Commit failed! Discarding mount... >> \"{logFile}\"");
+            sb.AppendLine($"    dism /Unmount-Image /MountDir:\"!CUR_MOUNT!\" /Discard >> \"{logFile}\" 2>&1");
+            sb.AppendLine(") else (");
+            sb.AppendLine($"    echo [Index %IDX%] Successfully COMMITTED and saved to WIM! >> \"{logFile}\"");
+            sb.AppendLine("    set /a PATCHED_COUNT+=1");
+            sb.AppendLine(")");
+            sb.AppendLine("rd /s /q \"!CUR_MOUNT!\" >nul 2>&1");
             sb.AppendLine("exit /b 0");
 
             await File.WriteAllTextAsync(cmdFile, sb.ToString(), new UTF8Encoding(false));
@@ -542,7 +590,7 @@ namespace MultiDeployOS.Master.Services
 
             return candidates
                 .Where(File.Exists)
-                .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
+                .OrderByDescending(f => new FileInfo(f).Length)
                 .FirstOrDefault();
         }
 
@@ -561,7 +609,7 @@ namespace MultiDeployOS.Master.Services
 
             return candidates
                 .Where(File.Exists)
-                .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
+                .OrderByDescending(f => new FileInfo(f).Length)
                 .FirstOrDefault();
         }
 
