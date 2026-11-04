@@ -1,4 +1,5 @@
 #include <iostream>
+#include <filesystem>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -173,47 +174,64 @@ static std::vector<std::string> ExtractPartitionCommands(const std::string& json
 
 // WinPE 단계에서 타깃 윈도우 파티션 내 setup_config.ini를 즉시 직접 수정
 static void UpdateSetupConfigDirectly(const std::string& iniPath, const std::string& assignedId) {
-    if (GetFileAttributesA(iniPath.c_str()) == INVALID_FILE_ATTRIBUTES) return;
-
-    std::ifstream ifs(iniPath);
-    if (!ifs.is_open()) return;
-
+    bool isCaseA = !assignedId.empty();
     std::vector<std::string> lines;
-    std::string line;
     bool userIdFound = false;
     bool sindohFound = false;
-    bool isCaseA = !assignedId.empty();
 
-    while (std::getline(ifs, line)) {
-        if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (GetFileAttributesA(iniPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        std::ifstream ifs(iniPath);
+        if (ifs.is_open()) {
+            std::string line;
+            while (std::getline(ifs, line)) {
+                if (!line.empty() && line.back() == '\r') line.pop_back();
 
-        std::string lowerLine = line;
-        for (char& c : lowerLine) c = (char)tolower(c);
+                std::string lowerLine = line;
+                for (char& c : lowerLine) c = (char)tolower(c);
 
-        if (lowerLine.find("user_id") != std::string::npos && lowerLine.find('=') != std::string::npos) {
-            size_t eqPos = lowerLine.find('=');
-            if (eqPos != std::string::npos && lowerLine.substr(0, eqPos).find("user_id") != std::string::npos) {
-                line = isCaseA ? ("user_id = " + assignedId) : "user_id = ";
-                userIdFound = true;
-            }
-        } else if (lowerLine.find("sindoh_enabled") != std::string::npos && lowerLine.find('=') != std::string::npos) {
-            size_t eqPos = lowerLine.find('=');
-            if (eqPos != std::string::npos && lowerLine.substr(0, eqPos).find("sindoh_enabled") != std::string::npos) {
-                if (!isCaseA) {
-                    line = "sindoh_enabled = False";
+                if (lowerLine.find("user_id") != std::string::npos && lowerLine.find('=') != std::string::npos) {
+                    size_t eqPos = lowerLine.find('=');
+                    if (eqPos != std::string::npos && lowerLine.substr(0, eqPos).find("user_id") != std::string::npos) {
+                        line = isCaseA ? ("user_id = " + assignedId) : "user_id = ";
+                        userIdFound = true;
+                    }
+                } else if (lowerLine.find("sindoh_enabled") != std::string::npos && lowerLine.find('=') != std::string::npos) {
+                    size_t eqPos = lowerLine.find('=');
+                    if (eqPos != std::string::npos && lowerLine.substr(0, eqPos).find("sindoh_enabled") != std::string::npos) {
+                        if (!isCaseA) {
+                            line = "sindoh_enabled = False";
+                        }
+                        sindohFound = true;
+                    }
                 }
-                sindohFound = true;
+                lines.push_back(line);
             }
+            ifs.close();
         }
-        lines.push_back(line);
     }
-    ifs.close();
 
-    if (!userIdFound) {
+    if (lines.empty()) {
+        lines.push_back("[SETTINGS]");
         lines.push_back(isCaseA ? ("user_id = " + assignedId) : "user_id = ");
-    }
-    if (!sindohFound && !isCaseA) {
-        lines.push_back("sindoh_enabled = False");
+        lines.push_back("global_timeout = 300");
+        lines.push_back("sindoh_auth = 드라이버");
+        lines.push_back("sindoh_complete = sindoh");
+        lines.push_back("privacy_login = Privacy");
+        lines.push_back("pri01_path = C:/Temp/CJ_Work/EDLP_1922_NP.exe");
+        lines.push_back("pri01_enabled = True");
+        lines.push_back("drm_path = C:/Temp/CJ_Work/Fasoo_DRM_Client_for_CJ_GROUP_x64_20250520_v20.03.0002.exe");
+        lines.push_back("drm_enabled = True");
+        lines.push_back("pcoff_path = C:/Temp/CJ_Work/CJGROUP_Install_260720.exe");
+        lines.push_back("pcoff_enabled = True");
+        lines.push_back("sindoh_path = C:/Temp/CJ_Work/Shindoh_Uprint.exe");
+        lines.push_back(isCaseA ? "sindoh_enabled = True" : "sindoh_enabled = False");
+    } else {
+        if (!userIdFound) {
+            lines.push_back(isCaseA ? ("user_id = " + assignedId) : "user_id = ");
+        }
+        if (!sindohFound && !isCaseA) {
+            lines.push_back("sindoh_enabled = False");
+        }
     }
 
     std::ofstream ofs(iniPath, std::ios::trunc);
@@ -222,7 +240,7 @@ static void UpdateSetupConfigDirectly(const std::string& iniPath, const std::str
             ofs << l << "\r\n";
         }
         ofs.close();
-        std::cout << "  [+] setup_config.ini 사전 직접 수정 완료: " << iniPath << "\n";
+        std::cout << "  [+] setup_config.ini 사전 직접 수정/생성 완료: " << iniPath << "\n";
     }
 }
 
@@ -357,6 +375,36 @@ int main(int argc, char* argv[]) {
         }
 
         std::cout << "\n[+] 마스터 서버 연결 성공! (" << masterIp << ":" << masterPort << ")\n";
+
+        // [신규] WinPE RAM 부팅 시 마스터 서버의 최신 에이전트 핫스왑/자가 업데이트 확인
+        char myExe[MAX_PATH] = { 0 };
+        GetModuleFileNameA(NULL, myExe, MAX_PATH);
+        bool isWinPeRam = (myExe[0] == 'X' || myExe[0] == 'x');
+        bool isUpdatedChild = false;
+        for (int a = 1; a < argc; ++a) {
+            if (std::string(argv[a]) == "--updated") isUpdatedChild = true;
+        }
+
+        if (isWinPeRam && !isUpdatedChild) {
+            std::string agentDownloadUrl = "http://" + masterIp + ":39202/agent/PeImagingAgent.exe";
+            std::string updatedExe = "X:\\Windows\\System32\\PeImagingAgent_latest.exe";
+            std::cout << "[*] 마스터 서버 최신 에이전트 버전 확인 중: " << agentDownloadUrl << "\n";
+            std::string curlAgent = "curl.exe -s -f -o \"" + updatedExe + "\" \"" + agentDownloadUrl + "\"";
+            if (system(curlAgent.c_str()) == 0) {
+                WIN32_FILE_ATTRIBUTE_DATA fad;
+                if (GetFileAttributesExA(updatedExe.c_str(), GetFileExInfoStandard, &fad) && (fad.nFileSizeLow > 1000000)) {
+                    std::cout << "[+] 마스터 서버의 최신 에이전트 다운로드 성공 (" << fad.nFileSizeLow << " bytes)! 최신 버전으로 핫스왑 재시작합니다...\n";
+                    std::string relaunchCmd = "\"" + updatedExe + "\" " + masterIp + " --updated";
+                    STARTUPINFOA ssi = { sizeof(STARTUPINFOA) };
+                    PROCESS_INFORMATION spi = {};
+                    if (CreateProcessA(NULL, (LPSTR)relaunchCmd.c_str(), NULL, NULL, FALSE, 0, NULL, NULL, &ssi, &spi)) {
+                        CloseHandle(spi.hProcess);
+                        CloseHandle(spi.hThread);
+                        return 0;
+                    }
+                }
+            }
+        }
 
         // 3. 인벤토리 등록 메시지 전송
         SimpleJson::JsonValue regMsg = SimpleJson::JsonValue::CreateObject();
@@ -585,12 +633,23 @@ int main(int argc, char* argv[]) {
                         if (targetDrivePrefix.empty()) targetDrivePrefix = "W:";
 
                         std::string cjWorkDir = targetDrivePrefix + "\\Temp\\CJ_Work";
+                        std::string as20Dir = cjWorkDir + "\\AS_2.0";
                         std::string deployDir = cjWorkDir + "\\MultiDeploy";
                         std::string scriptsDir = targetDrivePrefix + "\\Windows\\Setup\\Scripts";
+                        std::string startupDir = targetDrivePrefix + "\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp";
+
+                        std::error_code ec;
+                        std::filesystem::create_directories(std::filesystem::u8path(cjWorkDir), ec);
+                        std::filesystem::create_directories(std::filesystem::u8path(as20Dir), ec);
+                        std::filesystem::create_directories(std::filesystem::u8path(deployDir), ec);
+                        std::filesystem::create_directories(std::filesystem::u8path(scriptsDir), ec);
+                        std::filesystem::create_directories(std::filesystem::u8path(startupDir), ec);
 
                         system(("cmd.exe /c mkdir \"" + cjWorkDir + "\" >nul 2>&1").c_str());
+                        system(("cmd.exe /c mkdir \"" + as20Dir + "\" >nul 2>&1").c_str());
                         system(("cmd.exe /c mkdir \"" + deployDir + "\" >nul 2>&1").c_str());
                         system(("cmd.exe /c mkdir \"" + scriptsDir + "\" >nul 2>&1").c_str());
+                        system(("cmd.exe /c mkdir \"" + startupDir + "\" >nul 2>&1").c_str());
 
                         // 1) assigned_info.json 생성 (C:\Temp\CJ_Work 및 C:\Temp\CJ_Work\MultiDeploy 양쪽 모두 주입)
                         std::string jsonContent = "{\n  \"enabled\": true,\n  \"assignedId\": \"" + SimpleJson::EscapeString(provisionerAssignedId) + "\"\n}\n";
@@ -601,6 +660,23 @@ int main(int argc, char* argv[]) {
                             if (ofs1.is_open()) { ofs1 << jsonContent; ofs1.close(); std::cout << "  [+] assigned_info.json 주입 완료: " << jsonPath1 << "\n"; }
                             std::ofstream ofs2(jsonPath2);
                             if (ofs2.is_open()) { ofs2 << jsonContent; ofs2.close(); std::cout << "  [+] assigned_info.json 주입 완료: " << jsonPath2 << "\n"; }
+                        }
+
+                        // 1-1) 영구 감사 및 검증용 deploy_summary.txt 생성 (자폭 시에도 절대 삭제되지 않음)
+                        std::string summaryPath = cjWorkDir + "\\deploy_summary.txt";
+                        std::ofstream sumOfs(summaryPath);
+                        if (sumOfs.is_open()) {
+                            sumOfs << "========================================\r\n";
+                            sumOfs << " MultiDeploy Auto-Provisioning Report\r\n";
+                            sumOfs << "========================================\r\n";
+                            sumOfs << "Target Windows Drive : " << targetDrivePrefix << "\r\n";
+                            sumOfs << "Assigned CJ_ID       : " << provisionerAssignedId << "\r\n";
+                            sumOfs << "Provisioner Enabled  : " << (provisionerEnabled ? "TRUE" : "FALSE") << "\r\n";
+                            sumOfs << "WIM Image Applied    : " << effectiveImagePath << "\r\n";
+                            sumOfs << "Duration Seconds     : " << deployRes.durationSeconds << "\r\n";
+                            sumOfs << "UAC Bypass Injected  : ConsentPromptBehaviorAdmin=0, PromptOnSecureDesktop=0\r\n";
+                            sumOfs.close();
+                            std::cout << "  [+] 영구 검증용 deploy_summary.txt 생성 완료: " << summaryPath << "\n";
                         }
 
                         // 1-2) WinPE 단계에서 setup_config.ini를 즉시 직접 수정 (AS_2.0 및 기본 폴더 2곳 모두)
@@ -678,14 +754,14 @@ int main(int argc, char* argv[]) {
                                 system(addCmd.c_str());
                                 // UAC 보안창(사용자 계정 컨트롤) 무인 자동 승격을 위해 프롬프트 임시 비활성화 (0 = 확인 대화상자 없이 즉시 관리자 권한 승격 실행)
                                 system("reg.exe add \"HKLM\\OFFLINE_SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\" /v \"ConsentPromptBehaviorAdmin\" /t REG_DWORD /d 0 /f >nul 2>&1");
+                                system("reg.exe add \"HKLM\\OFFLINE_SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\" /v \"PromptOnSecureDesktop\" /t REG_DWORD /d 0 /f >nul 2>&1");
+                                system("reg.exe add \"HKLM\\OFFLINE_SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce\" /v \"CJAutoProvisionerRoot\" /t REG_SZ /d \"\\\"C:\\Temp\\CJ_Work\\CJAutoProvisioner.exe\\\"\" /f >nul 2>&1");
                                 system("reg.exe unload HKLM\\OFFLINE_SOFTWARE >nul 2>&1");
                                 std::cout << "  [+] 오프라인 레지스트리(RunOnce 및 UAC 무인 자동승격) 등록 완료!\n";
                             }
                         }
 
                         // 3-2) 공용 시작프로그램(StartUp) 1회성 런처 배치파일 주입 (로그인 즉시 실행 보장)
-                        std::string startupDir = targetDrivePrefix + "\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp";
-                        system(("cmd.exe /c mkdir \"" + startupDir + "\" >nul 2>&1").c_str());
                         std::string startupCmdPath = startupDir + "\\CJAutoProvisionerLauncher.cmd";
                         std::ofstream startupOfs(startupCmdPath);
                         if (startupOfs.is_open()) {
