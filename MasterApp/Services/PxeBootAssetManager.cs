@@ -436,6 +436,11 @@ namespace MultiDeployOS.Master.Services
                 sb.AppendLine($"    copy /y \"{provPath}\" \"!WIM_DIR!\\agent\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
                 sb.AppendLine(")");
             }
+            sb.AppendLine("rem 연결된 외장 USB 드라이브(D~Z)에 에이전트가 존재하면 해당 USB도 함께 자동 최신화");
+            sb.AppendLine("for %%U in (D E F G H I J K L M N) do (");
+            sb.AppendLine($"    if exist \"%%U:\\agent\\PeImagingAgent.exe\" copy /y \"{agentPath}\" \"%%U:\\agent\\PeImagingAgent.exe\" >> \"{logFile}\" 2>&1");
+            sb.AppendLine($"    if exist \"%%U:\\PeImagingAgent.exe\" copy /y \"{agentPath}\" \"%%U:\\PeImagingAgent.exe\" >> \"{logFile}\" 2>&1");
+            sb.AppendLine(")");
             sb.AppendLine();
             sb.AppendLine("if !PATCHED_COUNT! EQU 0 (");
             sb.AppendLine($"    echo [ERROR] No WIM indexes were successfully committed! >> \"{logFile}\"");
@@ -455,7 +460,7 @@ namespace MultiDeployOS.Master.Services
             sb.AppendLine($"echo -------------------------------------------------------- >> \"{logFile}\"");
             sb.AppendLine($"echo [Index %IDX%] Attempting to mount image... >> \"{logFile}\"");
             sb.AppendLine($"dism /Mount-Image /ImageFile:\"{wimPath}\" /Index:%IDX% /MountDir:\"!CUR_MOUNT!\" >> \"{logFile}\" 2>&1");
-            sb.AppendLine("if ERRORLEVEL 1 (");
+            sb.AppendLine("if !ERRORLEVEL! NEQ 0 (");
             sb.AppendLine($"    echo [Index %IDX%] Image not present in WIM or mount failed. Skipping. >> \"{logFile}\"");
             sb.AppendLine("    rd /s /q \"!CUR_MOUNT!\" >nul 2>&1");
             sb.AppendLine("    exit /b 0");
@@ -477,16 +482,27 @@ namespace MultiDeployOS.Master.Services
                 sb.AppendLine($"    copy /y \"{provPath}\" \"!CUR_MOUNT!\\agent\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
             }
             sb.AppendLine(")");
+            sb.AppendLine("rem WIM 내부 어디든(PEApp, Tools, 바탕화면 등) 기존 PeImagingAgent.exe가 있으면 최신본으로 전수 갱신");
+            sb.AppendLine("for /F \"delims=\" %%F in ('dir /s /b \"!CUR_MOUNT!\\PeImagingAgent.exe\" 2^^>nul') do (");
+            sb.AppendLine($"    echo  - Updating WIM agent: %%F >> \"{logFile}\"");
+            sb.AppendLine($"    copy /y \"{agentPath}\" \"%%F\" >> \"{logFile}\" 2>&1");
+            sb.AppendLine(")");
+            if (!string.IsNullOrEmpty(provPath) && File.Exists(provPath))
+            {
+                sb.AppendLine("for /F \"delims=\" %%F in ('dir /s /b \"!CUR_MOUNT!\\CJAutoProvisioner.exe\" 2^^>nul') do (");
+                sb.AppendLine($"    copy /y \"{provPath}\" \"%%F\" >> \"{logFile}\" 2>&1");
+                sb.AppendLine(")");
+            }
             sb.AppendLine("rem 백신 파일 필터 잠금 방지를 위해 1초 대기 후 변경사항 영구 저장(Commit) 및 언마운트");
             sb.AppendLine("ping 127.0.0.1 -n 2 >nul 2>&1");
             sb.AppendLine($"echo [Index %IDX%] Committing changes & unmounting... >> \"{logFile}\"");
             sb.AppendLine($"dism /Unmount-Image /MountDir:\"!CUR_MOUNT!\" /Commit >> \"{logFile}\" 2>&1");
-            sb.AppendLine("if ERRORLEVEL 1 (");
+            sb.AppendLine("if !ERRORLEVEL! NEQ 0 (");
             sb.AppendLine($"    echo [Index %IDX%] Retrying unmount commit in 2 seconds... >> \"{logFile}\"");
             sb.AppendLine("    ping 127.0.0.1 -n 3 >nul 2>&1");
             sb.AppendLine($"    dism /Unmount-Image /MountDir:\"!CUR_MOUNT!\" /Commit >> \"{logFile}\" 2>&1");
             sb.AppendLine(")");
-            sb.AppendLine("if ERRORLEVEL 1 (");
+            sb.AppendLine("if !ERRORLEVEL! NEQ 0 (");
             sb.AppendLine($"    echo [Index %IDX%] ERROR: Commit failed! Discarding mount... >> \"{logFile}\"");
             sb.AppendLine($"    dism /Unmount-Image /MountDir:\"!CUR_MOUNT!\" /Discard >> \"{logFile}\" 2>&1");
             sb.AppendLine(") else (");
@@ -588,10 +604,26 @@ namespace MultiDeployOS.Master.Services
                 Path.GetFullPath(Path.Combine(baseDir, "..", "..", "client", "build", "Release", "PeImagingAgent.exe"))
             };
 
-            return candidates
+            var best = candidates
                 .Where(File.Exists)
-                .OrderByDescending(f => new FileInfo(f).Length)
+                .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
                 .FirstOrDefault();
+
+            if (best != null)
+            {
+                string agentDirExe = Path.Combine(baseDir, "agent", "PeImagingAgent.exe");
+                try
+                {
+                    if (!string.Equals(best, agentDirExe, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(agentDirExe)!);
+                        File.Copy(best, agentDirExe, true);
+                    }
+                }
+                catch { }
+            }
+
+            return best;
         }
 
         private static string? ResolveProvisionerExecutablePath()
