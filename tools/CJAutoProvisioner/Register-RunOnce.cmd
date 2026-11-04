@@ -19,3 +19,4 @@ if errorlevel 1 (
     echo [SUCCESS] RunOnce 등록 성공: 최초 로그인 시 1회 실행 후 자동 삭제됩니다.
 )
 exit /b 0
+

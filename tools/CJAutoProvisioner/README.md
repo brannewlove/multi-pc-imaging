@@ -35,7 +35,9 @@ Windows OS 배포(WIM 이미징) 완료 후, 시스템 첫 부팅 시 사내 보
 | **`Program.cs`** | C# 전체 소스 코드 (외부 종속성 0%, .NET 8 및 .NET Framework 4.8 동시 호환) |
 | **`CJAutoProvisioner.csproj`** | .NET 8 프로젝트 파일 |
 | **`app.manifest`** | UAC 관리자 권한 승격 매니페스트 |
+| **`Install-Provisioner.bat`** | **무인 프로비저너 및 assigned_info.json 대화형 직접 설치 도구** |
 | **`Build-Provisioner.bat`** | 클릭 한 번으로 실행 파일을 빌드하는 배치 스크립트 |
+| **`assigned_info.template.json`** | 할당 정보 JSON 템플릿 파일 |
 | **`CJAutoProvisioner.ps1`** | 동일 로직을 수행하는 독립형 PowerShell 버전 |
 | **`SetupComplete.cmd`** | Windows OOBE 완료 직후 자동 실행 등록 템플릿 |
 | **`Register-RunOnce.cmd`** | 첫 사용자 로그인 시점 대화형 UI 실행 등록 스크립트 |
@@ -60,13 +62,31 @@ dotnet publish CJAutoProvisioner.csproj -c Release -r win-x64 --self-contained t
 
 ---
 
-## 4. Windows 첫 부팅 시 무인 실행 연동 방법
+## 4. `assigned_info.json` 및 프로비저너 직접 설치 방법
+
+`assigned_info.json`은 기본적으로 타깃 OS에 사전 설치되어 있지 않으므로, 관리자가 배포 시점이나 사전 준비 단계에서 **직접 설치(주입)**해야 합니다.
+
+### [가장 간편한 방법] 직접 설치 마법사 실행 (`Install-Provisioner.bat`)
+`tools\CJAutoProvisioner\Install-Provisioner.bat`을 실행하면 다음과 같이 대화형 마법사로 3초 만에 직접 설치할 수 있습니다:
+1. **설치 대상 드라이브 선택**: 현재 윈도우(`C:`) 또는 WinPE 배포 드라이브(`W:`) 선택
+2. **CJ_ID 직접 입력**: 
+   - 사번/ID 입력 시 -> `assigned_info.json`에 `assignedId: "{입력값}"` 저장 (CASE A 정상 발급 모드)
+   - 공란 엔터 시 -> `assigned_info.json`에 `assignedId: ""` 저장 (CASE B 사전 세팅 모드)
+3. **무인 프로비저너 활성화 여부**: Y 선택 시 `enabled: true`, N 선택 시 `enabled: false`
+4. **결과**: 
+   - 대상 드라이브의 `\Temp\CJ_Work\MultiDeploy\` 폴더에 `assigned_info.json`과 `CJAutoProvisioner.exe`가 자동 복사/생성됩니다.
+   - 첫 부팅 시 자동 실행을 위해 `\Windows\Setup\Scripts\SetupComplete.cmd` (및 C: 드라이브인 경우 RunOnce 레지스트리)가 자동으로 완벽 등록됩니다!
+
+---
+
+## 5. 수동 등록 및 Windows 첫 부팅 무인 실행 연동 방법
 
 ### 방식 1: `SetupComplete.cmd` 연동 (권장)
 WIM 이미징 배포 단계에서 타깃 OS 드라이브의 스크립트 폴더에 배치합니다:
 1. `tools\CJAutoProvisioner\dist\CJAutoProvisioner.exe` 파일을 `C:\Temp\CJ_Work\MultiDeploy\CJAutoProvisioner.exe` 위치에 복사합니다.
-2. `tools\CJAutoProvisioner\SetupComplete.cmd` 파일을 `C:\Windows\Setup\Scripts\SetupComplete.cmd` 에 배치합니다.
-3. Windows 설치 완료(OOBE 종료) 직후 시스템 계정으로 자동 실행됩니다.
+2. `assigned_info.json` 파일을 `C:\Temp\CJ_Work\MultiDeploy\assigned_info.json` 위치에 직접 생성/배치합니다.
+3. `tools\CJAutoProvisioner\SetupComplete.cmd` 파일을 `C:\Windows\Setup\Scripts\SetupComplete.cmd` 에 배치합니다.
+4. Windows 설치 완료(OOBE 종료) 직후 시스템 계정으로 자동 실행됩니다.
 
 ### 방식 2: `RunOnce` 레지스트리 연동 (바탕화면 대화형 실행 권장)
 사용자가 윈도우에 첫 로그인하는 시점에 화면 창이 뜨고 버튼이 클릭되는 과정을 사용자가 육안으로 확인해야 하는 경우:
@@ -82,7 +102,7 @@ reg unload HKLM\OFFLINE_SOFTWARE
 
 ---
 
-## 5. `assigned_info.json` 포맷 예시
+## 6. `assigned_info.json` 포맷 예시
 
 ### [CASE A: 정상 발급 모드]
 ```json
@@ -110,3 +130,4 @@ reg unload HKLM\OFFLINE_SOFTWARE
 }
 ```
 결과: 아무 작업도 하지 않고 프로비저너가 즉시 자폭 삭제 후 종료
+

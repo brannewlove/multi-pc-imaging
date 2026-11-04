@@ -297,3 +297,4 @@ if ($ps1Path -and (Test-Path $ps1Path)) {
 }
 
 exit 0
+
