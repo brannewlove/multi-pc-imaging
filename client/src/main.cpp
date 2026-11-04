@@ -463,6 +463,15 @@ int main(int argc, char* argv[]) {
 
                 // (1) 파티션 단계
                 std::cout << "[단계 1/3] 타깃 디스크 파티셔닝 수행 중... (Step 1/3: Partitioning Disk...)\n";
+                // [진행 보고: 3%] 파티셔닝 시작 즉시 보고하여 마스터 UI의 '작업 준비 중' 정체 해소
+                SimpleJson::JsonValue pStart = SimpleJson::JsonValue::CreateObject();
+                pStart.Set("type", "CLIENT_PROGRESS");
+                pStart.Set("status", "IMAGING");
+                pStart.Set("step", "타깃 디스크 파티셔닝 수행 중 (1/3)");
+                pStart.Set("percent", 3.0);
+                pStart.Set("elapsedSeconds", 1);
+                pStart.Set("remainingSeconds", 180);
+                client.SendJsonMessage(pStart.ToString());
                 std::vector<std::string> diskpartCmds = ExtractPartitionCommands(incomingJson);
                 if (diskpartCmds.empty()) {
                     diskpartCmds = {
@@ -609,6 +618,16 @@ int main(int argc, char* argv[]) {
                 if (effectiveImagePath.empty()) {
                     effectiveImagePath = "C:\\images\\" + (imageName.empty() ? "install.wim" : imageName);
                 }
+
+                // [진행 보고: 10%] SMB 마운트 성공 및 더빙 진입 보고
+                SimpleJson::JsonValue pSmb = SimpleJson::JsonValue::CreateObject();
+                pSmb.Set("type", "CLIENT_PROGRESS");
+                pSmb.Set("status", "IMAGING");
+                pSmb.Set("step", "OS WIM 이미지 더빙 진입 중 (2/3)");
+                pSmb.Set("percent", 10.0);
+                pSmb.Set("elapsedSeconds", 5);
+                pSmb.Set("remainingSeconds", 120);
+                client.SendJsonMessage(pSmb.ToString());
 
                 std::cout << "[단계 2/3] OS WIM 이미지 적용(더빙) 시작... (Step 2/3: Applying WIM Image...)\n";
                 std::cout << "  - WIM 경로: " << effectiveImagePath << "\n";

@@ -133,12 +133,27 @@ namespace MultiDeployOS.Master.Services
                 else if (type == "CLIENT_PROGRESS")
                 {
                     session.Status = "IMAGING";
-                    session.Progress = JsonSerializer.Deserialize<ProgressInfo>(jsonString) ?? new();
+                    if (root.TryGetProperty("payload", out var progPayload))
+                    {
+                        session.Progress = JsonSerializer.Deserialize<ProgressInfo>(progPayload.GetRawText()) ?? new();
+                    }
+                    else
+                    {
+                        session.Progress = JsonSerializer.Deserialize<ProgressInfo>(jsonString) ?? new();
+                    }
                     ClientProgressUpdated?.Invoke(session);
                 }
                 else if (type == "CLIENT_RESULT")
                 {
-                    var result = JsonSerializer.Deserialize<ResultInfo>(jsonString) ?? new();
+                    ResultInfo result;
+                    if (root.TryGetProperty("payload", out var resPayload))
+                    {
+                        result = JsonSerializer.Deserialize<ResultInfo>(resPayload.GetRawText()) ?? new();
+                    }
+                    else
+                    {
+                        result = JsonSerializer.Deserialize<ResultInfo>(jsonString) ?? new();
+                    }
                     session.Status = (result.Status == "SUCCESS") ? "SUCCESS" : "FAILED";
                     session.Result = result;
                     ClientCompleted?.Invoke(session, result);
