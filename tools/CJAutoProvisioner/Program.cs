@@ -47,7 +47,7 @@ namespace CJAutoProvisioner
         private const string WindowTitlePartial = "CJ 보안 소프트웨어";
         private const string TargetButtonText = "설치 시작";
         private const string ConfigFilePath = @"C:\Temp\CJ_Work\AS_2.0\setup_config.ini";
-        private const string LogFilePath = @"C:\Temp\CJ_Work\MultiDeploy\provision.log";
+        private const string LogFilePath = @"C:\Temp\CJ_Work\provision.log";
 
         // 폴링 대기 시간
         private const int MaxWaitSeconds = 15;
@@ -607,11 +607,8 @@ namespace CJAutoProvisioner
         {
             try
             {
-                string deleteCmd = string.Format("timeout /t 2 >nul & del /f /q \"{0}\"", exePath);
-                if (!string.IsNullOrEmpty(sourceJsonPath) && File.Exists(sourceJsonPath))
-                {
-                    deleteCmd += string.Format(" & del /f /q \"{0}\"", sourceJsonPath);
-                }
+                // 프로비저너 실행 파일(.exe)만 자체 삭제하며, 생성된 할당 정보(assigned_info.json)와 로그는 검증/보존을 위해 유지합니다.
+                string deleteCmd = string.Format("timeout /t 3 >nul & del /f /q \"{0}\"", exePath);
 
                 var psi = new ProcessStartInfo
                 {

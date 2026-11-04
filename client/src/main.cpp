@@ -171,6 +171,61 @@ static std::vector<std::string> ExtractPartitionCommands(const std::string& json
     return cmds;
 }
 
+// WinPE 단계에서 타깃 윈도우 파티션 내 setup_config.ini를 즉시 직접 수정
+static void UpdateSetupConfigDirectly(const std::string& iniPath, const std::string& assignedId) {
+    if (GetFileAttributesA(iniPath.c_str()) == INVALID_FILE_ATTRIBUTES) return;
+
+    std::ifstream ifs(iniPath);
+    if (!ifs.is_open()) return;
+
+    std::vector<std::string> lines;
+    std::string line;
+    bool userIdFound = false;
+    bool sindohFound = false;
+    bool isCaseA = !assignedId.empty();
+
+    while (std::getline(ifs, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+
+        std::string lowerLine = line;
+        for (char& c : lowerLine) c = (char)tolower(c);
+
+        if (lowerLine.find("user_id") != std::string::npos && lowerLine.find('=') != std::string::npos) {
+            size_t eqPos = lowerLine.find('=');
+            if (eqPos != std::string::npos && lowerLine.substr(0, eqPos).find("user_id") != std::string::npos) {
+                line = isCaseA ? ("user_id = " + assignedId) : "user_id = ";
+                userIdFound = true;
+            }
+        } else if (lowerLine.find("sindoh_enabled") != std::string::npos && lowerLine.find('=') != std::string::npos) {
+            size_t eqPos = lowerLine.find('=');
+            if (eqPos != std::string::npos && lowerLine.substr(0, eqPos).find("sindoh_enabled") != std::string::npos) {
+                if (!isCaseA) {
+                    line = "sindoh_enabled = False";
+                }
+                sindohFound = true;
+            }
+        }
+        lines.push_back(line);
+    }
+    ifs.close();
+
+    if (!userIdFound) {
+        lines.push_back(isCaseA ? ("user_id = " + assignedId) : "user_id = ");
+    }
+    if (!sindohFound && !isCaseA) {
+        lines.push_back("sindoh_enabled = False");
+    }
+
+    std::ofstream ofs(iniPath, std::ios::trunc);
+    if (ofs.is_open()) {
+        for (const auto& l : lines) {
+            ofs << l << "\r\n";
+        }
+        ofs.close();
+        std::cout << "  [+] setup_config.ini 사전 직접 수정 완료: " << iniPath << "\n";
+    }
+}
+
 // 방금 WIM 이미지가 더빙되어 윈도우가 설치된 실제 대상 드라이브를 100% 자동 감지
 static std::string DetectInstalledWindowsDrive(const std::string& preferredDrive = "W:") {
     std::string candidate = preferredDrive;
@@ -337,7 +392,7 @@ int main(int argc, char* argv[]) {
                 if (targetDrive.empty()) targetDrive = "W:";
                 if (bootDrive.empty()) bootDrive = "S:";
 
-                bool provisionerEnabled = false;
+                bool provisionerEnabled = true; // 기본값 활성 (추가개발 요구사항: 기본값 활성)
                 std::string provisionerAssignedId = "";
                 size_t provPos = incomingJson.find("\"provisioner\"");
                 if (provPos != std::string::npos) {
@@ -345,7 +400,7 @@ int main(int argc, char* argv[]) {
                     size_t provEnd = incomingJson.find('}', provBrace);
                     if (provBrace != std::string::npos && provEnd != std::string::npos) {
                         std::string provSub = incomingJson.substr(provBrace, provEnd - provBrace + 1);
-                        provisionerEnabled = ExtractJsonBool(provSub, "enabled", false);
+                        provisionerEnabled = ExtractJsonBool(provSub, "enabled", true);
                         provisionerAssignedId = ExtractJsonString(provSub, "assignedId");
                     }
                 }
@@ -529,28 +584,32 @@ int main(int argc, char* argv[]) {
                         }
                         if (targetDrivePrefix.empty()) targetDrivePrefix = "W:";
 
-                        std::string deployDir = targetDrivePrefix + "\\Temp\\CJ_Work\\MultiDeploy";
+                        std::string cjWorkDir = targetDrivePrefix + "\\Temp\\CJ_Work";
+                        std::string deployDir = cjWorkDir + "\\MultiDeploy";
                         std::string scriptsDir = targetDrivePrefix + "\\Windows\\Setup\\Scripts";
 
+                        system(("cmd.exe /c mkdir \"" + cjWorkDir + "\" >nul 2>&1").c_str());
                         system(("cmd.exe /c mkdir \"" + deployDir + "\" >nul 2>&1").c_str());
                         system(("cmd.exe /c mkdir \"" + scriptsDir + "\" >nul 2>&1").c_str());
 
-                        // 1) assigned_info.json 생성
-                        std::string jsonPath = deployDir + "\\assigned_info.json";
-                        std::ofstream ofs(jsonPath);
-                        if (ofs.is_open()) {
-                            ofs << "{\n";
-                            ofs << "  \"enabled\": true,\n";
-                            ofs << "  \"assignedId\": \"" << SimpleJson::EscapeString(provisionerAssignedId) << "\"\n";
-                            ofs << "}\n";
-                            ofs.close();
-                            std::cout << "  [+] assigned_info.json 주입 완료: " << jsonPath << "\n";
-                        } else {
-                            std::cerr << "  [-] assigned_info.json 생성 실패!\n";
+                        // 1) assigned_info.json 생성 (C:\Temp\CJ_Work 및 C:\Temp\CJ_Work\MultiDeploy 양쪽 모두 주입)
+                        std::string jsonContent = "{\n  \"enabled\": true,\n  \"assignedId\": \"" + SimpleJson::EscapeString(provisionerAssignedId) + "\"\n}\n";
+                        std::string jsonPath1 = cjWorkDir + "\\assigned_info.json";
+                        std::string jsonPath2 = deployDir + "\\assigned_info.json";
+                        {
+                            std::ofstream ofs1(jsonPath1);
+                            if (ofs1.is_open()) { ofs1 << jsonContent; ofs1.close(); std::cout << "  [+] assigned_info.json 주입 완료: " << jsonPath1 << "\n"; }
+                            std::ofstream ofs2(jsonPath2);
+                            if (ofs2.is_open()) { ofs2 << jsonContent; ofs2.close(); std::cout << "  [+] assigned_info.json 주입 완료: " << jsonPath2 << "\n"; }
                         }
 
-                        // 2) CJAutoProvisioner.exe 복사 또는 다운로드
+                        // 1-2) WinPE 단계에서 setup_config.ini를 즉시 직접 수정 (AS_2.0 및 기본 폴더 2곳 모두)
+                        UpdateSetupConfigDirectly(cjWorkDir + "\\AS_2.0\\setup_config.ini", provisionerAssignedId);
+                        UpdateSetupConfigDirectly(cjWorkDir + "\\setup_config.ini", provisionerAssignedId);
+
+                        // 2) CJAutoProvisioner.exe 복사 또는 다운로드 (MultiDeploy 및 CJ_Work 양쪽 배포)
                         std::string targetExe = deployDir + "\\CJAutoProvisioner.exe";
+                        std::string targetExe2 = cjWorkDir + "\\CJAutoProvisioner.exe";
                         bool exeCopied = false;
 
                         char modulePath[MAX_PATH] = { 0 };
@@ -571,6 +630,7 @@ int main(int argc, char* argv[]) {
                         for (const auto& cand : localCandidates) {
                             if (GetFileAttributesA(cand.c_str()) != INVALID_FILE_ATTRIBUTES) {
                                 if (CopyFileA(cand.c_str(), targetExe.c_str(), FALSE)) {
+                                    CopyFileA(cand.c_str(), targetExe2.c_str(), FALSE);
                                     std::cout << "  [+] 로컬/네트워크에서 CJAutoProvisioner.exe 복사 완료: " << cand << "\n";
                                     exeCopied = true;
                                     break;
@@ -584,6 +644,7 @@ int main(int argc, char* argv[]) {
                                 std::string usbCand = std::string(1, driveLetters[d]) + ":\\agent\\CJAutoProvisioner.exe";
                                 if (GetFileAttributesA(usbCand.c_str()) != INVALID_FILE_ATTRIBUTES) {
                                     if (CopyFileA(usbCand.c_str(), targetExe.c_str(), FALSE)) {
+                                        CopyFileA(usbCand.c_str(), targetExe2.c_str(), FALSE);
                                         std::cout << "  [+] USB/로컬 드라이브에서 복사 완료: " << usbCand << "\n";
                                         exeCopied = true;
                                         break;
@@ -597,6 +658,7 @@ int main(int argc, char* argv[]) {
                             std::cout << "  [*] 마스터 HTTP 서버에서 다운로드 시도: " << httpUrl << "\n";
                             std::string curlCmd = "curl.exe -s -f -o \"" + targetExe + "\" \"" + httpUrl + "\"";
                             if (system(curlCmd.c_str()) == 0 && GetFileAttributesA(targetExe.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                                CopyFileA(targetExe.c_str(), targetExe2.c_str(), FALSE);
                                 std::cout << "  [+] HTTP 다운로드 성공!\n";
                                 exeCopied = true;
                             }
@@ -631,6 +693,8 @@ int main(int argc, char* argv[]) {
                             startupOfs << "timeout /t 2 /nobreak >nul 2>&1\r\n";
                             startupOfs << "if exist \"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\" (\r\n";
                             startupOfs << "    start \"\" \"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\"\r\n";
+                            startupOfs << ") else if exist \"C:\\Temp\\CJ_Work\\CJAutoProvisioner.exe\" (\r\n";
+                            startupOfs << "    start \"\" \"C:\\Temp\\CJ_Work\\CJAutoProvisioner.exe\"\r\n";
                             startupOfs << ")\r\n";
                             startupOfs << "del \"%~f0\" >nul 2>&1\r\n";
                             startupOfs.close();
@@ -646,6 +710,9 @@ int main(int argc, char* argv[]) {
                             scOfs << "if exist \"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\" (\r\n";
                             scOfs << "    reg.exe add \"HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce\" /v \"CJAutoProvisioner\" /t REG_SZ /d \"\\\"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\\\"\" /f >nul 2>&1\r\n";
                             scOfs << "    start \"\" \"C:\\Temp\\CJ_Work\\MultiDeploy\\CJAutoProvisioner.exe\"\r\n";
+                            scOfs << ") else if exist \"C:\\Temp\\CJ_Work\\CJAutoProvisioner.exe\" (\r\n";
+                            scOfs << "    reg.exe add \"HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce\" /v \"CJAutoProvisioner\" /t REG_SZ /d \"\\\"C:\\Temp\\CJ_Work\\CJAutoProvisioner.exe\\\"\" /f >nul 2>&1\r\n";
+                            scOfs << "    start \"\" \"C:\\Temp\\CJ_Work\\CJAutoProvisioner.exe\"\r\n";
                             scOfs << ")\r\n";
                             scOfs.close();
                             std::cout << "  [+] SetupComplete.cmd 등록 완료: " << setupCmdPath << "\n";

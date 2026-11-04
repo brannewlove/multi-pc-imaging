@@ -93,6 +93,14 @@ namespace MultiDeployOS.Master.Forms
                 }
             };
 
+            // WinPE 클라이언트가 curl로 CJAutoProvisioner.exe 등을 다운로드할 수 있도록 HTTP 에셋 서버(39202)는 항시 시작
+            try
+            {
+                int httpPort = _configManager.ServerConfig.Pxe?.HttpBootPort > 0 ? _configManager.ServerConfig.Pxe.HttpBootPort : 39202;
+                _pxeCoordinator.HttpBootService.Start(System.Net.IPAddress.Any, httpPort);
+            }
+            catch { }
+
             if (_configManager.ServerConfig.Pxe.Enabled)
             {
                 _pxeCoordinator.Start();
