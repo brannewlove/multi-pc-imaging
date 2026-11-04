@@ -40,7 +40,7 @@
     "conditions": {
       "modelPattern": "*",
       "diskCountMin": 1,
-      "diskCountMax": 99,
+      "diskCountMax": 1,
       "targetDiskCriteria": "NVME_FIRST",
       "targetDiskIndex": 0,
       "minCapacityGb": 900,
@@ -81,7 +81,7 @@
     "conditions": {
       "modelPattern": "*",
       "diskCountMin": 1,
-      "diskCountMax": 99,
+      "diskCountMax": 1,
       "targetDiskCriteria": "NVME_FIRST",
       "targetDiskIndex": 0,
       "minCapacityGb": 450,
@@ -129,7 +129,7 @@
     "conditions": {
       "modelPattern": "*",
       "diskCountMin": 1,
-      "diskCountMax": 99,
+      "diskCountMax": 1,
       "targetDiskCriteria": "INDEX_0",
       "targetDiskIndex": 0,
       "minCapacityGb": 220,

@@ -11,30 +11,39 @@ namespace MultiDeployOS.Master.Services
         /// 정책 및 하드웨어 구성에 맞춰 실제 OS(W:)가 설치될 타깃 디스크 번호(DiskIndex)를 결정합니다.
         /// [규칙]
         /// 1. NVMe가 1개뿐인 경우 -> 고속 NVMe에 OS 설치 (기존 정책)
-        /// 2. 디스크 간 용량 차이가 있는 경우(> 3GB) -> 작은 용량 디스크에 OS 설치 (기존 정책)
+        /// 2. 디스크 간 용량 차이가 있는 경우 -> 작은 용량 디스크에 OS 설치 (기존 정책)
         /// 3. 동일 용량의 NVMe가 2개인 경우 -> Disk 1번에 OS, Disk 0번에 Data 설치 (사용자 지정 특수 환경)
         /// 4. 둘 다 SATA이거나 기타 동일 용량인 경우 -> Disk 0번에 OS 설치 (기존 표준)
         /// </summary>
         public static int DetermineTargetOsDiskIndex(PartitionPolicy? policy, List<DiskInfo>? clientDisks, int defaultIndex = 0)
         {
-            if (clientDisks == null || clientDisks.Count == 0)
+            var internalDisks = (clientDisks ?? new List<DiskInfo>()).Where(d => !IsUsbOrRemovable(d)).ToList();
+            if (internalDisks.Count == 0) internalDisks = clientDisks ?? new List<DiskInfo>();
+
+            if (internalDisks.Count == 0)
             {
                 return policy?.Conditions?.TargetDiskIndex ?? defaultIndex;
             }
 
-            if (clientDisks.Count == 1)
+            if (internalDisks.Count == 1)
             {
-                return clientDisks[0].DiskIndex;
+                return internalDisks[0].DiskIndex;
             }
 
             string criteria = policy?.Conditions?.TargetDiskCriteria?.Trim().ToUpperInvariant() ?? "SMART_AUTO";
             int preferredIndex = policy?.Conditions?.TargetDiskIndex ?? defaultIndex;
 
-            // 디스크 하드웨어 특성 분석
-            var nvmeList = clientDisks.Where(d => (d.BusType ?? "").Contains("NVME", StringComparison.OrdinalIgnoreCase)).ToList();
-            var sortedBySize = clientDisks.OrderBy(GetDiskGb).ToList();
-            double sizeDiff = Math.Abs(GetDiskGb(sortedBySize.Last()) - GetDiskGb(sortedBySize.First()));
-            bool hasSignificantSizeDiff = (sizeDiff > 3.0); // 3GB 초과 차이나면 용량 차이 존재
+            // 정책이 명시적으로 Disk 1번을 요구하는 경우 (예: policy-dual-nvme-disk1-os)
+            if (policy?.Id == "policy-dual-nvme-disk1-os" || criteria.Contains("DISK_1") || preferredIndex == 1)
+            {
+                var d1 = internalDisks.FirstOrDefault(d => d.DiskIndex == 1);
+                if (d1 != null) return d1.DiskIndex;
+            }
+
+            // 디스크 하드웨어 특성 분석 (내부 고정 디스크만 대상)
+            var nvmeList = internalDisks.Where(IsNvmeDisk).ToList();
+            var sortedBySize = internalDisks.OrderBy(GetDiskGb).ToList();
+            bool hasSignificantSizeDiff = !AreSameCapacity(GetDiskGb(sortedBySize.Last()), GetDiskGb(sortedBySize.First()));
 
             // [규칙 1] NVMe가 정확히 1개인 경우 (나머지는 SATA SSD / HDD):
             // -> 고속 NVMe 디스크에 무조건 Windows 11(OS) 설치 (기존 정책)
@@ -43,7 +52,7 @@ namespace MultiDeployOS.Master.Services
                 return nvmeList[0].DiskIndex;
             }
 
-            // [규칙 2] 디스크 간 용량 차이가 유의미하게 있는 경우 (> 3GB):
+            // [규칙 2] 디스크 간 용량 차이가 유의미하게 있는 경우:
             // -> 작은 용량 디스크(OS용 SSD)에 Windows 11 설치, 큰 디스크는 Data (기존 정책)
             if (hasSignificantSizeDiff)
             {
@@ -54,28 +63,59 @@ namespace MultiDeployOS.Master.Services
                 return sortedBySize.First().DiskIndex;
             }
 
-            // [규칙 3] 두 디스크가 동일한 용량(차이 <= 3GB)이면서 둘 다 NVMe인 경우:
+            // [규칙 3] 두 디스크가 동일한 용량급(10% 또는 35GB 이내)이면서 둘 다 NVMe인 경우:
             // -> 사용자의 핵심 요청 환경! Disk 1번에 Windows 11, Disk 0번에 Data 설치!
             if (nvmeList.Count >= 2 && !hasSignificantSizeDiff)
             {
-                var d1 = clientDisks.FirstOrDefault(d => d.DiskIndex == 1);
+                var d1 = internalDisks.FirstOrDefault(d => d.DiskIndex == 1);
                 if (d1 != null) return d1.DiskIndex;
-                if (clientDisks.Count > 1) return clientDisks[1].DiskIndex;
-                return clientDisks[0].DiskIndex;
+                if (internalDisks.Count > 1) return internalDisks[1].DiskIndex;
+                return internalDisks[0].DiskIndex;
             }
 
             // [규칙 4] 둘 다 NVMe가 아니거나(SATA 2개 등) 동일 용량인 경우:
             // -> 기존 표준 방식: Disk 0번 우선 (또는 명시적 DISK_1_FIRST 지정 시 반영)
             if (criteria.Contains("DISK_1") || preferredIndex == 1)
             {
-                var d1 = clientDisks.FirstOrDefault(d => d.DiskIndex == 1);
+                var d1 = internalDisks.FirstOrDefault(d => d.DiskIndex == 1);
                 if (d1 != null) return d1.DiskIndex;
             }
 
-            return clientDisks.FirstOrDefault(d => d.DiskIndex == 0)?.DiskIndex ?? clientDisks[0].DiskIndex;
+            return internalDisks.FirstOrDefault(d => d.DiskIndex == 0)?.DiskIndex ?? internalDisks[0].DiskIndex;
         }
 
-        private static double GetDiskGb(DiskInfo disk)
+        public static bool IsNvmeDisk(DiskInfo? d)
+        {
+            if (d == null) return false;
+            string bus = (d.BusType ?? "").ToUpperInvariant();
+            string name = (d.FriendlyName ?? "").ToUpperInvariant();
+            string model = (d.Model ?? "").ToUpperInvariant();
+
+            if (bus.Contains("NVME")) return true;
+            if (name.Contains("NVME") || name.Contains("PCIE") || name.Contains("M.2")) return true;
+            if (model.Contains("NVME") || model.Contains("PCIE") || model.Contains("M.2")) return true;
+            return false;
+        }
+
+        public static bool IsUsbOrRemovable(DiskInfo? d)
+        {
+            if (d == null) return false;
+            string bus = (d.BusType ?? "").ToUpperInvariant();
+            string media = (d.MediaType ?? "").ToUpperInvariant();
+            if (bus.Contains("USB") || media.Contains("REMOVABLE")) return true;
+            return false;
+        }
+
+        public static bool AreSameCapacity(double cap1, double cap2)
+        {
+            double diff = Math.Abs(cap1 - cap2);
+            if (diff <= 35.0) return true; // 512GB vs 476GB (11~35GB 표기 오차 허용)
+            double maxCap = Math.Max(cap1, cap2);
+            if (maxCap > 0 && (diff / maxCap) <= 0.10) return true; // 10% 이내 차이 허용
+            return false;
+        }
+
+        public static double GetDiskGb(DiskInfo disk)
         {
             if (disk.SizeGb > 0) return disk.SizeGb;
             if (disk.SizeBytes > 0) return disk.SizeBytes / (1024.0 * 1024 * 1024);
@@ -161,7 +201,11 @@ namespace MultiDeployOS.Master.Services
         {
             var cmds = new List<string>();
 
-            if (clientDisks == null || clientDisks.Count == 0)
+            // USB/이동식 미디어를 제외한 내부 고정 디스크만 파티셔닝 대상으로 삼음 (USB 부팅 미디어 데이터 손실 방지)
+            var internalDisks = (clientDisks ?? new List<DiskInfo>()).Where(d => !IsUsbOrRemovable(d)).ToList();
+            if (internalDisks.Count == 0) internalDisks = clientDisks ?? new List<DiskInfo>();
+
+            if (internalDisks.Count == 0)
             {
                 int targetDisk = policy?.Conditions?.TargetDiskIndex ?? defaultTargetDiskIndex;
                 return new List<string>
@@ -173,10 +217,10 @@ namespace MultiDeployOS.Master.Services
                 };
             }
 
-            if (clientDisks.Count == 1)
+            if (internalDisks.Count == 1)
             {
-                // [조건 1] 디스크 1개 인식
-                var disk = clientDisks[0];
+                // [조건 1] 내부 고정 디스크 1개 인식
+                var disk = internalDisks[0];
                 int diskIndex = disk.DiskIndex;
                 double sizeGb = GetDiskGb(disk);
                 long sizeMb = disk.SizeBytes > 0 ? (disk.SizeBytes / (1024 * 1024)) : (long)(sizeGb * 1024);
@@ -214,11 +258,11 @@ namespace MultiDeployOS.Master.Services
             }
             else
             {
-                // [조건 2] 디스크 2개 이상 인식
-                int osDiskIndex = DetermineTargetOsDiskIndex(policy, clientDisks, defaultTargetDiskIndex);
+                // [조건 2] 내부 고정 디스크 2개 이상 인식
+                int osDiskIndex = DetermineTargetOsDiskIndex(policy, internalDisks, defaultTargetDiskIndex);
 
-                var osDisk = clientDisks.FirstOrDefault(d => d.DiskIndex == osDiskIndex) ?? clientDisks[0];
-                var dataDisks = clientDisks.Where(d => d.DiskIndex != osDisk.DiskIndex).OrderBy(d => d.DiskIndex).ToList();
+                var osDisk = internalDisks.FirstOrDefault(d => d.DiskIndex == osDiskIndex) ?? internalDisks[0];
+                var dataDisks = internalDisks.Where(d => d.DiskIndex != osDisk.DiskIndex).OrderBy(d => d.DiskIndex).ToList();
 
                 // 1. OS 디스크: 전체 GPT 포맷, EFI(S:), MSR 생성 후 전체를 "Windows11" 라벨로 포맷 (W:)
                 cmds.Add($"select disk {osDisk.DiskIndex}");

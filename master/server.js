@@ -247,6 +247,51 @@ function matchPartitionPolicy(client) {
         return partitionPolicies[0] || null;
     }
 
+    // USB/이동식 미디어를 제외한 내부 고정 디스크만 정책 매칭에 반영 (USB 부팅 미디어로 인한 왜곡 방지)
+    const fixedDisks = client.disks.filter(d => !isUsbOrRemovable(d));
+    const targetDisks = fixedDisks.length > 0 ? fixedDisks : client.disks;
+    const diskCount = targetDisks.length;
+    const targetDisk = targetDisks[0]; // 기본 타깃 디스크
+    const targetCapacityGb = getDiskGb(targetDisk);
+
+    const candidatePolicies = [...partitionPolicies].sort((a, b) => calculatePolicyScore(b) - calculatePolicyScore(a));
+    for (const policy of candidatePolicies) {
+        const cond = policy.conditions;
+        if (!cond) continue;
+
+        // 디스크 수량 조건 체크
+        if (cond.diskCountMin && diskCount < cond.diskCountMin) continue;
+        if (cond.diskCountMax && diskCount > cond.diskCountMax) continue;
+
+        // 용량 범위 조건 체크
+        if (cond.minCapacityGb && targetCapacityGb < cond.minCapacityGb) continue;
+        if (cond.maxCapacityGb && targetCapacityGb > cond.maxCapacityGb) continue;
+
+        // 모델명 정규식 체크 (예: * or NT950*)
+        if (cond.modelPattern && cond.modelPattern !== '*') {
+            const pattern = new RegExp(cond.modelPattern.replace(/\*/g, '.*'), 'i');
+            if (!pattern.test(client.system.modelName || '')) continue;
+        }
+
+        // 듀얼 NVMe Disk 1 OS 특수 정책 조건 검사:
+        // 디스크가 2개 이상이어도 용량 차이가 있거나, NVMe가 1개뿐인 경우에는 기존 스마트 정책이 적용되어야 함!
+        if (policy.id === 'policy-dual-nvme-disk1-os' || cond.targetDiskCriteria === 'DISK_1_FIRST') {
+            if (diskCount < 2) continue;
+            const nvmeCount = targetDisks.filter(isNvmeDisk).length;
+            if (nvmeCount < 2) continue;
+            const diskSizes = targetDisks.map(d => getDiskGb(d)).sort((a, b) => a - b);
+            if (diskSizes.length >= 2 && !areSameCapacity(diskSizes[diskSizes.length - 1], diskSizes[0])) {
+                continue;
+            }
+        }
+
+        return policy;
+    }
+
+    // 일치하는 규칙이 없으면 첫 번째 기본 정책 매칭
+    return partitionPolicies[0] || null;
+}
+
     const diskCount = client.disks.length;
     const targetDisk = client.disks[0]; // 기본 타깃 디스크 0
     const targetCapacityGb = targetDisk.sizeGb || (targetDisk.sizeBytes ? (targetDisk.sizeBytes / (1024 * 1024 * 1024)) : 0);
@@ -360,34 +405,71 @@ function reMatchConnectedClients() {
 }
 
 // 스마트 지능형 동적 파티션 스크립트 생성 엔진 (사용자 지정 조건부 분할)
+function isNvmeDisk(d) {
+    if (!d) return false;
+    const bus = (d.busType || '').toUpperCase();
+    const name = (d.friendlyName || '').toUpperCase();
+    const model = (d.model || '').toUpperCase();
+    if (bus.includes('NVME')) return true;
+    if (name.includes('NVME') || name.includes('PCIE') || name.includes('M.2')) return true;
+    if (model.includes('NVME') || model.includes('PCIE') || model.includes('M.2')) return true;
+    return false;
+}
+
+function isUsbOrRemovable(d) {
+    if (!d) return false;
+    const bus = (d.busType || '').toUpperCase();
+    const media = (d.mediaType || '').toUpperCase();
+    if (bus.includes('USB') || media.includes('REMOVABLE')) return true;
+    return false;
+}
+
+function areSameCapacity(cap1, cap2) {
+    const diff = Math.abs(cap1 - cap2);
+    if (diff <= 35.0) return true;
+    const maxCap = Math.max(cap1, cap2);
+    if (maxCap > 0 && (diff / maxCap) <= 0.10) return true;
+    return false;
+}
+
+// 스마트 지능형 동적 파티션 스크립트 생성 엔진 (사용자 지정 조건부 분할)
 function getDiskGb(d) {
+    if (!d) return 0;
     if (d.sizeGb) return d.sizeGb;
     if (d.sizeBytes) return d.sizeBytes / (1024 * 1024 * 1024);
     return 0;
 }
 
 function determineTargetOsDiskIndex(policy, clientDisks = [], defaultIndex = 0) {
-    if (!clientDisks || clientDisks.length === 0) {
+    const internalDisks = (clientDisks || []).filter(d => !isUsbOrRemovable(d));
+    const disks = internalDisks.length > 0 ? internalDisks : (clientDisks || []);
+
+    if (disks.length === 0) {
         return policy?.conditions?.targetDiskIndex ?? defaultIndex;
     }
-    if (clientDisks.length === 1) {
-        return clientDisks[0].diskIndex ?? 0;
+    if (disks.length === 1) {
+        return disks[0].diskIndex ?? 0;
     }
 
     const criteria = (policy?.conditions?.targetDiskCriteria || 'SMART_AUTO').trim().toUpperCase();
     const preferredIndex = policy?.conditions?.targetDiskIndex ?? defaultIndex;
 
-    const nvmeList = clientDisks.filter(d => (d.busType || '').toUpperCase().includes('NVME'));
-    const sortedBySize = [...clientDisks].sort((a, b) => getDiskGb(a) - getDiskGb(b));
-    const sizeDiff = Math.abs(getDiskGb(sortedBySize[sortedBySize.length - 1]) - getDiskGb(sortedBySize[0]));
-    const hasSignificantSizeDiff = (sizeDiff > 3.0);
+    // 정책이 명시적으로 Disk 1번을 요구하는 경우 (예: policy-dual-nvme-disk1-os)
+    if (policy?.id === 'policy-dual-nvme-disk1-os' || criteria.includes('DISK_1') || preferredIndex === 1) {
+        const d1 = disks.find(d => d.diskIndex === 1);
+        if (d1) return d1.diskIndex;
+    }
 
-    // [洹쒖튃 1] NVMe媛 ?뺥솗??1媛쒖씤 寃쎌슦 -> 怨좎냽 NVMe??OS ?ㅼ튂 (湲곗〈 ?뺤콉)
+    const nvmeList = disks.filter(isNvmeDisk);
+    const sortedBySize = [...disks].sort((a, b) => getDiskGb(a) - getDiskGb(b));
+    const hasSignificantSizeDiff = !areSameCapacity(getDiskGb(sortedBySize[sortedBySize.length - 1]), getDiskGb(sortedBySize[0]));
+
+    // [규칙 1] NVMe가 정확히 1개인 경우 -> 고속 NVMe에 OS 설치 (기존 정책)
     if (nvmeList.length === 1) {
         return nvmeList[0].diskIndex ?? 0;
     }
 
-    // [洹쒖튃 2] ?붿뒪??媛??⑸웾 李⑥씠媛 ?덈뒗 寃쎌슦 (> 3GB) -> ?묒? ?⑸웾 ?붿뒪?ъ뿉 OS ?ㅼ튂 (湲곗〈 ?뺤콉)
+    // [규칙 2] 디스크 간 용량 차이가 유의미하게 있는 경우 -> 작은 용량 디스크에 OS 설치 (기존 정책)
     if (hasSignificantSizeDiff) {
         if (nvmeList.length >= 2) {
             const sortedNvmes = [...nvmeList].sort((a, b) => getDiskGb(a) - getDiskGb(b));
@@ -396,30 +478,35 @@ function determineTargetOsDiskIndex(policy, clientDisks = [], defaultIndex = 0) 
         return sortedBySize[0].diskIndex ?? 0;
     }
 
-    // [洹쒖튃 3] ?숈씪 ?⑸웾??NVMe媛 2媛쒖씤 寃쎌슦 -> Disk 1踰덉뿉 OS, Disk 0踰덉뿉 Data ?ㅼ튂!
+    // [규칙 3] 동일 용량급 NVMe가 2개인 경우 -> Disk 1번에 OS, Disk 0번에 Data 설치!
     if (nvmeList.length >= 2 && !hasSignificantSizeDiff) {
-        const d1 = clientDisks.find(d => d.diskIndex === 1);
+        const d1 = disks.find(d => d.diskIndex === 1);
         if (d1) return d1.diskIndex;
-        if (clientDisks.length > 1) return clientDisks[1].diskIndex ?? 1;
-        return clientDisks[0].diskIndex ?? 0;
+        if (disks.length > 1) return disks[1].diskIndex ?? 1;
+        return disks[0].diskIndex ?? 0;
     }
 
-    // [洹쒖튃 4] ????NVMe媛 ?꾨땲嫄곕굹 ?숈씪 ?⑸웾??寃쎌슦 -> Disk 0踰??곗꽑
+    // [규칙 4] 둘 다 NVMe가 아니거나 동일 용량인 경우 -> Disk 0번 우선
     if (criteria.includes('DISK_1') || preferredIndex === 1) {
-        const d1 = clientDisks.find(d => d.diskIndex === 1);
+        const d1 = disks.find(d => d.diskIndex === 1);
         if (d1) return d1.diskIndex;
     }
 
-    const d0 = clientDisks.find(d => d.diskIndex === 0);
-    return d0 ? d0.diskIndex : (clientDisks[0].diskIndex ?? 0);
+    const d0 = disks.find(d => d.diskIndex === 0);
+    return d0 ? d0.diskIndex : (disks[0].diskIndex ?? 0);
 }
+
 function generateDynamicSmartPartitionCommands(clientDisks = [], policy = null, defaultTargetDiskIndex = 0) {
     const cmds = [];
+    // USB/이동식 미디어를 제외한 내부 고정 디스크만 파티셔닝 대상으로 삼음
+    const internalDisks = (clientDisks || []).filter(d => !isUsbOrRemovable(d));
+    const disks = internalDisks.length > 0 ? internalDisks : (clientDisks || []);
 
     // 디스크 목록이 없거나 비어있는 경우 Disk 0 단일 디스크로 대체
-    if (!clientDisks || clientDisks.length === 0) {
+    if (disks.length === 0) {
+        const targetDisk = policy?.conditions?.targetDiskIndex ?? defaultTargetDiskIndex;
         return [
-            'select disk 0',
+            `select disk ${targetDisk}`,
             'clean',
             'convert gpt',
             'create partition efi size=100',
@@ -432,11 +519,11 @@ function generateDynamicSmartPartitionCommands(clientDisks = [], policy = null, 
         ];
     }
 
-    if (clientDisks.length === 1) {
+    if (disks.length === 1) {
         // [조건 1] 디스크 1개 인식
-        const disk = clientDisks[0];
+        const disk = disks[0];
         const diskIndex = disk.diskIndex ?? 0;
-        const sizeGb = disk.sizeGb || (disk.sizeBytes ? (disk.sizeBytes / (1024 * 1024 * 1024)) : 0);
+        const sizeGb = getDiskGb(disk);
         const sizeMb = disk.sizeBytes ? Math.floor(disk.sizeBytes / (1024 * 1024)) : Math.floor(sizeGb * 1024);
 
         cmds.push(`select disk ${diskIndex}`);
@@ -467,23 +554,12 @@ function generateDynamicSmartPartitionCommands(clientDisks = [], policy = null, 
             cmds.push('assign letter="D"');
         }
     } else {
-        // [조건 2] 디스크 2개 이상 인식
-        // 작은 용량 디스크 우선 정렬, 용량이 동일한 경우 1번 디스크(diskIndex 낮은 순) 우선
-        const sorted = [...clientDisks].sort((a, b) => {
-            const sizeA = a.sizeBytes || ((a.sizeGb || 0) * 1024 * 1024 * 1024);
-            const sizeB = b.sizeBytes || ((b.sizeGb || 0) * 1024 * 1024 * 1024);
-            // 2GB 이상 차이나면 작은 용량 디스크 선정
-            if (Math.abs(sizeA - sizeB) > 2 * 1024 * 1024 * 1024) {
-                return sizeA - sizeB;
-            }
-            // 동일 크기 디스크인 경우 1번 디스크(낮은 diskIndex) 선정
-            return (a.diskIndex ?? 0) - (b.diskIndex ?? 0);
-        });
+        // [조건 2] 내부 고정 디스크 2개 이상 인식
+        const osDiskIndex = determineTargetOsDiskIndex(policy, disks, defaultTargetDiskIndex);
+        const osDisk = disks.find(d => d.diskIndex === osDiskIndex) || disks[0];
+        const dataDisks = disks.filter(d => d.diskIndex !== osDisk.diskIndex).sort((a, b) => (a.diskIndex ?? 0) - (b.diskIndex ?? 0));
 
-        const osDisk = sorted[0];
-        const dataDisks = sorted.slice(1);
-
-        // 1. 정책이 스마트 동적 정책이거나 지능형 모드인 경우
+        // 1. OS 디스크: 전체 GPT 포맷, EFI(S:), MSR 생성 후 전체를 "Windows11" 라벨로 포맷 (W:)
         cmds.push(`select disk ${osDisk.diskIndex ?? 0}`);
         cmds.push('clean');
         cmds.push('convert gpt');
@@ -495,7 +571,7 @@ function generateDynamicSmartPartitionCommands(clientDisks = [], policy = null, 
         cmds.push('format quick fs=ntfs label="Windows11"');
         cmds.push('assign letter="W"');
 
-        // 2. 나머지 디스크: 전부 GPT 포맷, 1개면 "Data", 2개 이상이면 "Data1", "Data2" 형식
+        // 2. 나머지 디스크: 전부 GPT 포맷, 1개면 "Data(D:)", 2개 이상이면 "Data1(D:)", "Data2" 형식
         dataDisks.forEach((dDisk, idx) => {
             const label = dataDisks.length === 1 ? 'Data' : `Data${idx + 1}`;
             cmds.push(`select disk ${dDisk.diskIndex}`);

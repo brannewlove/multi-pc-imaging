@@ -371,7 +371,8 @@ int main(int argc, char* argv[]) {
                     };
                 }
 
-                auto partRes = PartitionEngine::ExecutePartitionPlan(0, diskpartCmds);
+                int targetDiskIdx = ExtractJsonInt(incomingJson, "targetDiskIndex", 0);
+                auto partRes = PartitionEngine::ExecutePartitionPlan(targetDiskIdx, diskpartCmds);
                 if (!partRes.success) {
                     std::cerr << "[-] 파티셔닝 실패 (Partition Failed): " << partRes.errorMessage << "\n";
                     // 실패 보고

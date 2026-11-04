@@ -212,6 +212,19 @@ static void ScanDisks(std::vector<DiskInfo>& outDisks) {
                 while (!disk.friendlyName.empty() && disk.friendlyName.back() == ' ')
                     disk.friendlyName.pop_back();
             }
+
+            // USB / 이동식 미디어 판별
+            if (desc->RemovableMedia || desc->BusType == BusTypeUsb) {
+                disk.busType = "USB";
+                disk.mediaType = "Removable";
+            } else {
+                // Intel RST / VMD / RAID 컨트롤러 환경에서도 NVMe ProductId 보정
+                std::string upperName = disk.friendlyName;
+                for (char& c : upperName) c = (char)toupper(c);
+                if (upperName.find("NVME") != std::string::npos || upperName.find("PCIE") != std::string::npos) {
+                    disk.busType = "NVMe";
+                }
+            }
         }
 
         // 2. 디스크 지오메트리 및 총 용량

@@ -72,8 +72,12 @@ namespace MultiDeployOS.Master.Services
         {
             if (policies == null || policies.Count == 0) return null;
 
-            int diskCount = client.Disks.Count;
-            var targetDisk = client.Disks.FirstOrDefault();
+            // USB/이동식 미디어를 제외한 내부 고정 디스크만 정책 매칭에 반영 (USB 부팅 미디어로 인한 왜곡 방지)
+            var fixedDisks = client.Disks.Where(d => !SmartPartitionEngine.IsUsbOrRemovable(d)).ToList();
+            if (fixedDisks.Count == 0) fixedDisks = client.Disks;
+
+            int diskCount = fixedDisks.Count;
+            var targetDisk = fixedDisks.FirstOrDefault();
             double targetCapacityGb = targetDisk != null ? (targetDisk.SizeGb > 0 ? targetDisk.SizeGb : (targetDisk.SizeBytes / (1024.0 * 1024 * 1024))) : 0;
             string clientModel = client.System.ModelName ?? "";
 
@@ -121,12 +125,12 @@ namespace MultiDeployOS.Master.Services
                     if (diskCount < 2) continue;
 
                     // NVMe가 2개 미만인 경우 (NVMe가 1개뿐이거나 SATA만 있는 경우) -> 기존 정책 적용
-                    int nvmeCount = client.Disks.Count(d => (d.BusType ?? "").Contains("NVME", StringComparison.OrdinalIgnoreCase));
+                    int nvmeCount = fixedDisks.Count(SmartPartitionEngine.IsNvmeDisk);
                     if (nvmeCount < 2) continue;
 
-                    // 두 디스크 간 용량 차이가 있는 경우 (3GB 초과 차이) -> 기존 정책 적용
-                    var diskSizes = client.Disks.Select(d => d.SizeGb > 0 ? d.SizeGb : (d.SizeBytes / (1024.0 * 1024 * 1024))).OrderBy(s => s).ToList();
-                    if (diskSizes.Count >= 2 && Math.Abs(diskSizes.Last() - diskSizes.First()) > 3.0)
+                    // 두 디스크 간 용량 차이가 있는 경우 (동일 용량급이 아닌 경우) -> 기존 정책 적용
+                    var diskSizes = fixedDisks.Select(SmartPartitionEngine.GetDiskGb).OrderBy(s => s).ToList();
+                    if (diskSizes.Count >= 2 && !SmartPartitionEngine.AreSameCapacity(diskSizes.Last(), diskSizes.First()))
                     {
                         continue;
                     }

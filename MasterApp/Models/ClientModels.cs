@@ -58,6 +58,9 @@ namespace MultiDeployOS.Master.Models
         [JsonPropertyName("busType")]
         public string BusType { get; set; } = "";
 
+        [JsonPropertyName("mediaType")]
+        public string MediaType { get; set; } = "";
+
         [JsonPropertyName("sizeBytes")]
         public long SizeBytes { get; set; }
 
