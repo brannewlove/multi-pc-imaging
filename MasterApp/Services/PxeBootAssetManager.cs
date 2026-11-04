@@ -482,18 +482,6 @@ namespace MultiDeployOS.Master.Services
                 sb.AppendLine($"    copy /y \"{provPath}\" \"!CUR_MOUNT!\\agent\\CJAutoProvisioner.exe\" >> \"{logFile}\" 2>&1");
             }
             sb.AppendLine(")");
-            sb.AppendLine("rem WIM 내부 어디든(PEApp, Tools, 바탕화면 등) 기존 PeImagingAgent.exe가 있으면 최신본으로 전수 갱신");
-            sb.AppendLine("for /F \"delims=\" %%F in ('dir /s /b \"!CUR_MOUNT!\\PeImagingAgent.exe\" 2^^>nul') do (");
-            sb.AppendLine($"    echo  - Updating WIM agent: %%F >> \"{logFile}\"");
-            sb.AppendLine($"    copy /y \"{agentPath}\" \"%%F\" >> \"{logFile}\" 2>&1");
-            sb.AppendLine(")");
-            if (!string.IsNullOrEmpty(provPath) && File.Exists(provPath))
-            {
-                sb.AppendLine("for /F \"delims=\" %%F in ('dir /s /b \"!CUR_MOUNT!\\CJAutoProvisioner.exe\" 2^^>nul') do (");
-                sb.AppendLine($"    copy /y \"{provPath}\" \"%%F\" >> \"{logFile}\" 2>&1");
-                sb.AppendLine(")");
-            }
-            sb.AppendLine("rem 백신 파일 필터 잠금 방지를 위해 1초 대기 후 변경사항 영구 저장(Commit) 및 언마운트");
             sb.AppendLine("ping 127.0.0.1 -n 2 >nul 2>&1");
             sb.AppendLine($"echo [Index %IDX%] Committing changes & unmounting... >> \"{logFile}\"");
             sb.AppendLine($"dism /Unmount-Image /MountDir:\"!CUR_MOUNT!\" /Commit >> \"{logFile}\" 2>&1");
