@@ -844,18 +844,9 @@ namespace MultiDeployOS.Master.Forms
                         if (newId == "[비활성]" || newId == "(공란)" || newId == "(미입력)") newId = "";
                         session.CjId = newId;
 
-                        // 마스터 화면에서 아이디를 적으면(활성화상태에서만), 추가 입력없이 자동으로 배포 진행!
-                        if (!string.IsNullOrWhiteSpace(newId) && session.IsProvisionerEnabled && session.Status == "READY")
-                        {
-                            BeginInvoke(new Action(() =>
-                            {
-                                ApproveClient(session);
-                            }));
-                        }
-                        else
-                        {
-                            RefreshGridRows();
-                        }
+                        // [분리 적용] CJ_ID 입력은 사후 프로비저너에 사용할 사번만 세션에 저장하며, 이미지 배포를 자동으로 시작하지 않습니다.
+                        // 이미지 배포 자동화는 오직 헤더의 [배포 자동화] 버튼 상태(_globalAutoApprove)에 의해서만 진행됩니다.
+                        RefreshGridRows();
                     }
                 }
             };
@@ -1516,9 +1507,9 @@ namespace MultiDeployOS.Master.Forms
                 RefreshGridRows();
                 UpdateMetrics();
 
-                // 자동 승인 조건 검사
-                bool shouldAutoApprove = (_globalAutoApprove && session.MatchedPolicy != null && session.MatchedPolicy.AutoApprove)
-                    || (!string.IsNullOrWhiteSpace(session.CjId) && session.IsProvisionerEnabled);
+                // [분리 적용] 이미지 배포 자동화는 오직 헤더의 [배포 자동화] 버튼 상태(_globalAutoApprove)에 의해서만 진행됩니다.
+                // CJ_ID 유무나 프로비저너 활성화 여부(IsProvisionerEnabled)와는 완전히 분리됩니다.
+                bool shouldAutoApprove = _globalAutoApprove && (session.MatchedPolicy == null || session.MatchedPolicy.AutoApprove);
 
                 if (shouldAutoApprove)
                 {
@@ -1648,6 +1639,15 @@ namespace MultiDeployOS.Master.Forms
             {
                 _btnAutoApproveToggle.Text = "⚡ 배포 자동화: ON";
                 _btnAutoApproveToggle.BackColor = Color.FromArgb(5, 150, 105);
+
+                // 배포 자동화가 켜지면 현재 대기(READY) 중인 모든 PC 즉시 일괄 자동 승인
+                foreach (var session in _sessions.Values.ToList())
+                {
+                    if (session.Status == "READY" && (session.MatchedPolicy == null || session.MatchedPolicy.AutoApprove))
+                    {
+                        ApproveClient(session);
+                    }
+                }
             }
             else
             {

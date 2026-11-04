@@ -106,7 +106,7 @@ namespace MultiDeployOS.Master.Forms
             _chkAutoApproveNow = new CheckBox
             {
                 Text = "확인 시 즉시 배포 시작 (추가 승인 클릭 없이 자동으로 진행)",
-                Checked = anyReady,
+                Checked = false, // 의도치 않은 자동 배포 방지 (기본값 OFF)
                 Enabled = anyReady,
                 ForeColor = Color.FromArgb(253, 224, 71),
                 Font = new Font("맑은 고딕", 9f, FontStyle.Bold),
