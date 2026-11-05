@@ -16,11 +16,16 @@ if not exist "%CSC_EXE%" (
     set "CSC_EXE=%SystemRoot%\Microsoft.NET\Framework\v4.0.30319\csc.exe"
 )
 
+set "WPF_DIR=%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\WPF"
+if not exist "%WPF_DIR%" (
+    set "WPF_DIR=%SystemRoot%\Microsoft.NET\Framework\v4.0.30319\WPF"
+)
+
 if exist "%CSC_EXE%" (
-    echo [1/2] Compiling ultra-light standalone executable via Windows csc.exe...
-    "%CSC_EXE%" /nologo /target:exe /platform:anycpu /optimize+ /win32manifest:app.manifest /out:"%OUTPUT_DIR%\CJAutoProvisioner.exe" "Program.cs"
+    echo [1/2] Compiling standalone executable with Windows UI Automation support via csc.exe...
+    "%CSC_EXE%" /nologo /target:exe /platform:anycpu /optimize+ /win32manifest:app.manifest /r:"%WPF_DIR%\UIAutomationClient.dll" /r:"%WPF_DIR%\UIAutomationTypes.dll" /r:"%WPF_DIR%\WindowsBase.dll" /out:"%OUTPUT_DIR%\CJAutoProvisioner.exe" "Program.cs"
     if exist "%OUTPUT_DIR%\CJAutoProvisioner.exe" (
-        echo  - [SUCCESS] Built: %OUTPUT_DIR%\CJAutoProvisioner.exe (Ultra-light ~20KB)
+        echo  - [SUCCESS] Built: %OUTPUT_DIR%\CJAutoProvisioner.exe (Ultra-light ~25KB with UI Automation)
     )
 ) else (
     echo [1/2] csc.exe not found on system.
