@@ -1791,7 +1791,7 @@ namespace MultiDeployOS.Master.Forms
                 string actionButtonText = s.Status switch
                 {
                     "PXE_BOOT" => "부팅 중...",
-                    "READY" => "배포 승인",
+                    "READY" => "대기중",
                     "IMAGING" => "배포 중...",
                     "SUCCESS" => "완료됨",
                     "FAILED" => "재시도",
