@@ -1,4 +1,4 @@
-﻿# ==============================================================================
+﻿﻿# ==============================================================================
 # CJ 보안 소프트웨어 설치 자동화 무인 프로비저너 (PowerShell Standalone Version)
 # ==============================================================================
 [CmdletBinding()]
@@ -285,15 +285,17 @@ if ($targetHwnd -ne [IntPtr]::Zero) {
 # ------------------------------------------------------------------------------
 # 5. Step 5: 정상 종료 및 자폭(Self-Delete)
 # ------------------------------------------------------------------------------
-Write-ProvisionLog "[Step 5] 프로비저닝 종료. 2초 후 자동 정리(Self-Delete)를 수행합니다."
-if ($foundJson -and (Test-Path $foundJson)) {
-    Remove-Item -Path $foundJson -Force -ErrorAction SilentlyContinue
-}
+Write-ProvisionLog "[Step 5] 프로비저닝 종료."
 
-# ps1 파일 자체 삭제 백그라운드 예약
+# ps1 파일 자체 삭제 (단, 소스코드 저장소나 개발 폴더에 있는 경우 보존!)
 $ps1Path = $MyInvocation.MyCommand.Path
 if ($ps1Path -and (Test-Path $ps1Path)) {
-    Start-Process -FilePath "cmd.exe" -ArgumentList "/c timeout /t 2 >nul & del /f /q `"$ps1Path`"" -WindowStyle Hidden
+    if ($ps1Path -like "*\\Temp\\CJ_Work\\*" -or $ps1Path -like "*\\Windows\\*") {
+        Write-ProvisionLog "[CLEANUP] 배포 임시 폴더 내 스크립트 자동 정리 예약: $ps1Path"
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c timeout /t 2 >nul & del /f /q `"$ps1Path`"" -WindowStyle Hidden
+    } else {
+        Write-ProvisionLog "[INFO] 개발/테스트 환경이므로 원본 스크립트를 보존합니다: $ps1Path"
+    }
 }
 
 exit 0
