@@ -208,10 +208,18 @@ namespace CJAutoProvisioner
                         return 0;
                     }
 
-                    bool isCaseA = !string.IsNullOrEmpty(info.AssignedId) && info.AssignedId.Trim().Length > 0;
-                    if (isCaseA)
+                    string cleanId = (info.AssignedId != null) ? info.AssignedId.Trim('"', '\'', ' ') : "";
+                    bool isRent = cleanId.Equals("rent", StringComparison.OrdinalIgnoreCase);
+                    bool isCaseA = !string.IsNullOrEmpty(cleanId) && !isRent;
+                    bool isCaseB = string.IsNullOrEmpty(cleanId);
+
+                    if (isRent)
                     {
-                        Log(string.Format("[CASE A 감지] 정상 발급 모드: 주입된 CJ_ID = '{0}'", info.AssignedId));
+                        Log("[CASE R 감지] 렌탈 PC 모드 ('rent' 감지): user_id='cjencmaster', pcoff_enabled=False, sindoh_enabled=False 적용");
+                    }
+                    else if (isCaseA)
+                    {
+                        Log(string.Format("[CASE A 감지] 정상 발급 모드: 주입된 CJ_ID = '{0}'", cleanId));
                     }
                     else
                     {
@@ -230,7 +238,7 @@ namespace CJAutoProvisioner
                         if (File.Exists(ini))
                         {
                             Log(string.Format("[Step 2] 초기 설정 파일 수정 중... (대상: {0})", ini));
-                            UpdateSetupConfig(ini, isCaseA, info.AssignedId);
+                            UpdateSetupConfig(ini, cleanId);
                         }
                     }
 
@@ -462,27 +470,13 @@ namespace CJAutoProvisioner
                 }
 
                 string assignedId = null;
-                string[] idKeys = new string[] { "assigned_id", "cj_id", "user_id" };
-                foreach (var key in idKeys)
+                Match mId = Regex.Match(jsonText, @"(?:""|')?(?:assignedId|assigned_id|cj_id|cjId|user_id|userId|cjid)(?:""|')?\s*:\s*(?:""|')?([^,""'\}\s]+)(?:""|')?", RegexOptions.IgnoreCase);
+                if (mId.Success)
                 {
-                    Match mId = Regex.Match(jsonText, string.Format(@"""{0}""\s*:\s*""([^""]*)""", key), RegexOptions.IgnoreCase);
-                    if (mId.Success)
+                    string val = mId.Groups[1].Value.Trim('"', '\'', ' ');
+                    if (!val.Equals("null", StringComparison.OrdinalIgnoreCase))
                     {
-                        assignedId = mId.Groups[1].Value.Trim();
-                        break;
-                    }
-                }
-
-                if (string.IsNullOrEmpty(assignedId))
-                {
-                    Match mIdBare = Regex.Match(jsonText, @"""(?:assigned_id|cj_id|user_id)""\s*:\s*([^,\}\s]+)", RegexOptions.IgnoreCase);
-                    if (mIdBare.Success)
-                    {
-                        string val = mIdBare.Groups[1].Value.Trim();
-                        if (!val.Equals("null", StringComparison.OrdinalIgnoreCase))
-                        {
-                            assignedId = val.Trim('"', '\'');
-                        }
+                        assignedId = val;
                     }
                 }
 
@@ -498,7 +492,7 @@ namespace CJAutoProvisioner
         // ==========================================
         // [Step 2: setup_config.ini 수정]
         // ==========================================
-        private static void UpdateSetupConfig(string iniPath, bool isCaseA, string assignedId)
+        private static void UpdateSetupConfig(string iniPath, string rawAssignedId)
         {
             try
             {
@@ -514,14 +508,24 @@ namespace CJAutoProvisioner
                 Log(string.Format("[WARNING] 백업 파일 생성 실패 (진행은 계속함): {0}", ex.Message));
             }
 
+            string cleanId = (rawAssignedId != null) ? rawAssignedId.Trim('"', '\'', ' ') : "";
+            bool isRent = cleanId.Equals("rent", StringComparison.OrdinalIgnoreCase);
+            bool isCaseA = !string.IsNullOrEmpty(cleanId) && !isRent;
+            bool isCaseB = string.IsNullOrEmpty(cleanId);
+
+            // user_id 설정 값 결정:
+            // - rent 모드: 무조건 "cjencmaster" 지정
+            // - CASE A (정상 발급): 입력된 cleanId
+            // - CASE B (공란 모드): ""
+            string targetUserId = isRent ? "cjencmaster" : (isCaseA ? cleanId : "");
+
             Encoding encoding = DetectFileEncoding(iniPath);
             string[] lines = File.Exists(iniPath) ? File.ReadAllLines(iniPath, encoding) : new string[0];
             var newLines = new List<string>();
 
             bool userIdUpdated = false;
+            bool pcoffUpdated = false;
             bool sindohUpdated = false;
-
-            string cleanId = assignedId != null ? assignedId.Trim('"', '\'', ' ') : "";
 
             foreach (var rawLine in lines)
             {
@@ -530,25 +534,37 @@ namespace CJAutoProvisioner
                 // 1. user_id 수정
                 if (Regex.IsMatch(line, @"^\s*user_id\s*=", RegexOptions.IgnoreCase))
                 {
-                    if (isCaseA)
-                    {
-                        line = string.Format("user_id = {0}", cleanId);
-                        Log(string.Format("[CONFIG EDIT] user_id 설정 -> '{0}'", cleanId));
-                    }
-                    else
-                    {
-                        line = "user_id = ";
-                        Log("[CONFIG EDIT] user_id 설정 -> 공란 (user_id = )");
-                    }
+                    line = string.Format("user_id = {0}", targetUserId);
+                    Log(string.Format("[CONFIG EDIT] user_id 설정 -> '{0}' ({1})", targetUserId, isRent ? "rent 렌탈 모드 강제 지정" : (isCaseA ? "정상 발급 모드" : "공란 모드")));
                     userIdUpdated = true;
                 }
-                // 2. sindoh_enabled 수정 (CASE B인 경우 False로 강제)
+                // 2. pcoff_enabled 수정 (rent 모드인 경우 False, 일반 발급 모드는 True)
+                else if (Regex.IsMatch(line, @"^\s*pcoff_enabled\s*=", RegexOptions.IgnoreCase))
+                {
+                    if (isRent)
+                    {
+                        line = "pcoff_enabled = False";
+                        Log("[CONFIG EDIT] pcoff_enabled 설정 -> False (rent 렌탈 모드 적용)");
+                    }
+                    else if (isCaseA)
+                    {
+                        line = "pcoff_enabled = True";
+                        Log("[CONFIG EDIT] pcoff_enabled 설정 -> True (정상 발급 모드)");
+                    }
+                    pcoffUpdated = true;
+                }
+                // 3. sindoh_enabled 수정 (rent 모드 또는 CASE B 공란 모드인 경우 False, 일반 발급 모드는 True)
                 else if (Regex.IsMatch(line, @"^\s*sindoh_enabled\s*=", RegexOptions.IgnoreCase))
                 {
-                    if (!isCaseA)
+                    if (isRent || isCaseB)
                     {
                         line = "sindoh_enabled = False";
-                        Log("[CONFIG EDIT] sindoh_enabled 설정 -> False (공란 모드)");
+                        Log(string.Format("[CONFIG EDIT] sindoh_enabled 설정 -> False ({0})", isRent ? "rent 렌탈 모드 적용" : "공란 모드 적용"));
+                    }
+                    else if (isCaseA)
+                    {
+                        line = "sindoh_enabled = True";
+                        Log("[CONFIG EDIT] sindoh_enabled 설정 -> True (정상 발급 모드)");
                     }
                     sindohUpdated = true;
                 }
@@ -558,14 +574,21 @@ namespace CJAutoProvisioner
 
             if (!userIdUpdated)
             {
-                string lineToAdd = isCaseA ? string.Format("user_id = {0}", cleanId) : "user_id = ";
+                string lineToAdd = string.Format("user_id = {0}", targetUserId);
                 newLines.Add(lineToAdd);
                 Log(string.Format("[CONFIG APPEND] 누락된 user_id 추가: {0}", lineToAdd));
             }
-            if (!sindohUpdated && !isCaseA)
+            if (!pcoffUpdated)
             {
-                newLines.Add("sindoh_enabled = False");
-                Log("[CONFIG APPEND] 누락된 sindoh_enabled 추가: False");
+                string pcoffVal = isRent ? "False" : "True";
+                newLines.Add("pcoff_enabled = " + pcoffVal);
+                Log(string.Format("[CONFIG APPEND] 누락된 pcoff_enabled 추가: {0}", pcoffVal));
+            }
+            if (!sindohUpdated)
+            {
+                string sindohVal = (isRent || isCaseB) ? "False" : "True";
+                newLines.Add("sindoh_enabled = " + sindohVal);
+                Log(string.Format("[CONFIG APPEND] 누락된 sindoh_enabled 추가: {0}", sindohVal));
             }
 
             File.WriteAllLines(iniPath, newLines.ToArray(), encoding);

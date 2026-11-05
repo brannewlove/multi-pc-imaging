@@ -174,9 +174,22 @@ static std::vector<std::string> ExtractPartitionCommands(const std::string& json
 
 // WinPE 단계에서 타깃 윈도우 파티션 내 setup_config.ini를 즉시 직접 수정
 static void UpdateSetupConfigDirectly(const std::string& iniPath, const std::string& assignedId) {
-    bool isCaseA = !assignedId.empty();
+    std::string cleanId = assignedId;
+    while (!cleanId.empty() && (cleanId.front() == ' ' || cleanId.front() == '"' || cleanId.front() == '\'')) cleanId.erase(0, 1);
+    while (!cleanId.empty() && (cleanId.back() == ' ' || cleanId.back() == '"' || cleanId.back() == '\'')) cleanId.pop_back();
+
+    std::string lowerId = cleanId;
+    for (char& c : lowerId) c = (char)tolower(c);
+
+    bool isRent = (lowerId == "rent");
+    bool isCaseA = (!cleanId.empty() && !isRent);
+    bool isCaseB = cleanId.empty();
+
+    std::string targetUserId = isRent ? "cjencmaster" : (isCaseA ? cleanId : "");
+
     std::vector<std::string> lines;
     bool userIdFound = false;
+    bool pcoffFound = false;
     bool sindohFound = false;
 
     if (GetFileAttributesA(iniPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
@@ -192,15 +205,19 @@ static void UpdateSetupConfigDirectly(const std::string& iniPath, const std::str
                 if (lowerLine.find("user_id") != std::string::npos && lowerLine.find('=') != std::string::npos) {
                     size_t eqPos = lowerLine.find('=');
                     if (eqPos != std::string::npos && lowerLine.substr(0, eqPos).find("user_id") != std::string::npos) {
-                        line = isCaseA ? ("user_id = " + assignedId) : "user_id = ";
+                        line = "user_id = " + targetUserId;
                         userIdFound = true;
+                    }
+                } else if (lowerLine.find("pcoff_enabled") != std::string::npos && lowerLine.find('=') != std::string::npos) {
+                    size_t eqPos = lowerLine.find('=');
+                    if (eqPos != std::string::npos && lowerLine.substr(0, eqPos).find("pcoff_enabled") != std::string::npos) {
+                        line = isRent ? "pcoff_enabled = False" : "pcoff_enabled = True";
+                        pcoffFound = true;
                     }
                 } else if (lowerLine.find("sindoh_enabled") != std::string::npos && lowerLine.find('=') != std::string::npos) {
                     size_t eqPos = lowerLine.find('=');
                     if (eqPos != std::string::npos && lowerLine.substr(0, eqPos).find("sindoh_enabled") != std::string::npos) {
-                        if (!isCaseA) {
-                            line = "sindoh_enabled = False";
-                        }
+                        line = (isRent || isCaseB) ? "sindoh_enabled = False" : "sindoh_enabled = True";
                         sindohFound = true;
                     }
                 }
@@ -212,7 +229,7 @@ static void UpdateSetupConfigDirectly(const std::string& iniPath, const std::str
 
     if (lines.empty()) {
         lines.push_back("[SETTINGS]");
-        lines.push_back(isCaseA ? ("user_id = " + assignedId) : "user_id = ");
+        lines.push_back("user_id = " + targetUserId);
         lines.push_back("global_timeout = 300");
         lines.push_back("sindoh_auth = 드라이버");
         lines.push_back("sindoh_complete = sindoh");
@@ -222,15 +239,18 @@ static void UpdateSetupConfigDirectly(const std::string& iniPath, const std::str
         lines.push_back("drm_path = C:/Temp/CJ_Work/Fasoo_DRM_Client_for_CJ_GROUP_x64_20250520_v20.03.0002.exe");
         lines.push_back("drm_enabled = True");
         lines.push_back("pcoff_path = C:/Temp/CJ_Work/CJGROUP_Install_260720.exe");
-        lines.push_back("pcoff_enabled = True");
+        lines.push_back(isRent ? "pcoff_enabled = False" : "pcoff_enabled = True");
         lines.push_back("sindoh_path = C:/Temp/CJ_Work/Shindoh_Uprint.exe");
-        lines.push_back(isCaseA ? "sindoh_enabled = True" : "sindoh_enabled = False");
+        lines.push_back((isRent || isCaseB) ? "sindoh_enabled = False" : "sindoh_enabled = True");
     } else {
         if (!userIdFound) {
-            lines.push_back(isCaseA ? ("user_id = " + assignedId) : "user_id = ");
+            lines.push_back("user_id = " + targetUserId);
         }
-        if (!sindohFound && !isCaseA) {
-            lines.push_back("sindoh_enabled = False");
+        if (!pcoffFound) {
+            lines.push_back(isRent ? "pcoff_enabled = False" : "pcoff_enabled = True");
+        }
+        if (!sindohFound) {
+            lines.push_back((isRent || isCaseB) ? "sindoh_enabled = False" : "sindoh_enabled = True");
         }
     }
 
@@ -697,7 +717,7 @@ int main(int argc, char* argv[]) {
                         system(("cmd.exe /c mkdir \"" + desktopDir + "\" >nul 2>&1").c_str());
 
                         // 1) assigned_info.json 생성 (C:\Temp\CJ_Work 및 C:\Temp\CJ_Work\MultiDeploy 양쪽 모두 주입)
-                        std::string jsonContent = "{\n  \"enabled\": true,\n  \"assignedId\": \"" + SimpleJson::EscapeString(provisionerAssignedId) + "\"\n}\n";
+                        std::string jsonContent = "{\n  \"enabled\": true,\n  \"assignedId\": \"" + SimpleJson::EscapeString(provisionerAssignedId) + "\",\n  \"assigned_id\": \"" + SimpleJson::EscapeString(provisionerAssignedId) + "\"\n}\n";
                         std::string jsonPath1 = cjWorkDir + "\\assigned_info.json";
                         std::string jsonPath2 = deployDir + "\\assigned_info.json";
                         {
