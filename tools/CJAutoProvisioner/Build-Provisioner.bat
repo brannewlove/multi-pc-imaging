@@ -18,7 +18,7 @@ if not exist "%CSC_EXE%" (
 
 if exist "%CSC_EXE%" (
     echo [1/2] Compiling ultra-light standalone executable via Windows csc.exe...
-    "%CSC_EXE%" /nologo /target:winexe /platform:anycpu /optimize+ /win32manifest:app.manifest /out:"%OUTPUT_DIR%\CJAutoProvisioner.exe" "Program.cs"
+    "%CSC_EXE%" /nologo /target:exe /platform:anycpu /optimize+ /win32manifest:app.manifest /out:"%OUTPUT_DIR%\CJAutoProvisioner.exe" "Program.cs"
     if exist "%OUTPUT_DIR%\CJAutoProvisioner.exe" (
         echo  - [SUCCESS] Built: %OUTPUT_DIR%\CJAutoProvisioner.exe (Ultra-light ~20KB)
     )
