@@ -23,9 +23,10 @@ namespace MultiDeployOS.Master.Forms
         // 헤더 및 요약 컨트롤
         private Label _lblServerStatus;
         private Button _btnAutoApproveToggle;
-        private Button _btnBatchApprove;
-        private Button _btnBatchStop;
-        private Button _btnRefreshSettings;
+        private Button _btnDeployDropdown;
+        private Button _btnSettingsDropdown;
+        private ContextMenuStrip _deployDropdownMenu = null!;
+        private ContextMenuStrip _settingsDropdownMenu = null!;
         private Label _valTotal, _valPending, _valActive, _valSuccess, _valFailed;
         private TextBox? _activeEditingTextBox;
 
@@ -218,56 +219,113 @@ namespace MultiDeployOS.Master.Forms
                 Padding = new Padding(0, 8, 0, 0)
             };
 
+            _btnPxeServer = CreateButton("🌐 PXE 서버: OFF", Color.FromArgb(51, 65, 85));
+            _btnPxeServer.Click += (s, e) => OpenPxeSettingsDialog();
+
             _btnAutoApproveToggle = CreateButton("⚪ 배포 자동화: OFF", Color.FromArgb(71, 85, 105));
             _btnAutoApproveToggle.Click += ToggleAutoApprove;
 
-            _btnBatchApprove = CreateButton("✔ 대기 PC 일괄 승인", Color.FromArgb(14, 165, 233));
-            _btnBatchApprove.Click += BatchApproveAll;
+            // 드롭다운 메뉴 1: 🚀 배포 작업 제어 ▾
+            _deployDropdownMenu = CreateStyledDropdownMenu();
+            var mnuBatchApprove = new ToolStripMenuItem("✔ 대기 PC 일괄 승인 (배포 시작)");
+            mnuBatchApprove.Click += BatchApproveAll;
 
-            _btnBatchStop = CreateButton("⏹ 배포 중지", Color.FromArgb(220, 38, 38));
-            _btnBatchStop.Click += BatchStopDeploy;
+            var mnuBatchStop = new ToolStripMenuItem("⏹ 배포 중지 (진행 중 작업 중단)");
+            mnuBatchStop.Click += BatchStopDeploy;
 
-            _btnRefreshSettings = CreateButton("🔄 설정 새로고침", Color.FromArgb(2, 132, 199));
-            _btnRefreshSettings.Click += (s, e) => RefreshAllSettingsAndSessions(showFeedback: true);
+            var mnuRefreshFromDeploy = new ToolStripMenuItem("🔄 변경된 설정 새로고침 적용 (F5)");
+            mnuRefreshFromDeploy.Click += (s, e) => RefreshAllSettingsAndSessions(showFeedback: true);
 
-            var btnSelectImage = CreateButton("📀 이미지 별도 선택", Color.FromArgb(16, 185, 129));
-            btnSelectImage.Click += (s, e) => OpenSelectImageDialog();
+            var mnuSelectImage = new ToolStripMenuItem("📀 선택 PC 이미지 별도 선택...");
+            mnuSelectImage.Click += (s, e) => OpenSelectImageDialog();
 
-            var btnOpenPolicies = CreateButton("🗂️ 파티션 권장양식", Color.FromArgb(51, 65, 85));
-            btnOpenPolicies.Click += (s, e) =>
+            var mnuInputCjId = new ToolStripMenuItem("🆔 선택 PC 사번(CJ_ID) 일괄 입력...");
+            mnuInputCjId.Click += (s, e) => OpenInputCjIdDialog();
+
+            var mnuResetAutoImage = new ToolStripMenuItem("⚡ 선택 PC 기본 자동선택으로 초기화");
+            mnuResetAutoImage.Click += (s, e) => ResetSelectedClientsToAutoImage();
+
+            _deployDropdownMenu.Items.Add(mnuBatchApprove);
+            _deployDropdownMenu.Items.Add(mnuBatchStop);
+            _deployDropdownMenu.Items.Add(new ToolStripSeparator());
+            _deployDropdownMenu.Items.Add(mnuSelectImage);
+            _deployDropdownMenu.Items.Add(mnuInputCjId);
+            _deployDropdownMenu.Items.Add(mnuResetAutoImage);
+            _deployDropdownMenu.Items.Add(new ToolStripSeparator());
+            _deployDropdownMenu.Items.Add(mnuRefreshFromDeploy);
+
+            _deployDropdownMenu.Opening += (s, e) =>
+            {
+                int readyOrFailedCount = _sessions.Values.Count(x => x.Status == "READY" || x.Status == "FAILED");
+                int imagingCount = _sessions.Values.Count(x => x.Status == "IMAGING");
+                mnuBatchApprove.Text = readyOrFailedCount > 0
+                    ? $"✔ 대기 PC 일괄 승인 (대상: {readyOrFailedCount}대)"
+                    : "✔ 대기 PC 일괄 승인 (대기 PC 없음)";
+                mnuBatchStop.Text = imagingCount > 0
+                    ? $"⏹ 배포 중지 (진행 중: {imagingCount}대)"
+                    : "⏹ 배포 중지 (진행 중 PC 없음)";
+            };
+
+            _btnDeployDropdown = CreateButton("🚀 배포 작업 제어 ▾", Color.FromArgb(14, 165, 233));
+            _btnDeployDropdown.Click += (s, e) =>
+            {
+                _deployDropdownMenu.Show(_btnDeployDropdown, new Point(0, _btnDeployDropdown.Height + 2));
+            };
+
+            // 드롭다운 메뉴 2: ⚙️ 정책 · 환경 설정 ▾
+            _settingsDropdownMenu = CreateStyledDropdownMenu();
+
+            var mnuRefreshSettings = new ToolStripMenuItem("🔄 변경된 설정 새로고침 적용 (F5)");
+            mnuRefreshSettings.Click += (s, e) => RefreshAllSettingsAndSessions(showFeedback: true);
+
+            var mnuOpenPolicies = new ToolStripMenuItem("🗂️ 파티션 권장양식 관리...");
+            mnuOpenPolicies.Click += (s, e) =>
             {
                 using var form = new PolicyEditorForm(_configManager);
                 form.ShowDialog(this);
                 RefreshAllSettingsAndSessions(showFeedback: false);
             };
 
-            var btnOpenImageRules = CreateButton("🎯 이미지 선택 규칙", Color.FromArgb(51, 65, 85));
-            btnOpenImageRules.Click += (s, e) =>
+            var mnuOpenImageRules = new ToolStripMenuItem("🎯 이미지 자동 선택 규칙 관리...");
+            mnuOpenImageRules.Click += (s, e) =>
             {
                 using var form = new ImageRuleEditorForm(_configManager);
                 form.ShowDialog(this);
                 RefreshAllSettingsAndSessions(showFeedback: false);
             };
 
-            var btnExport = CreateButton("📤 설정 백업", Color.FromArgb(71, 85, 105));
-            btnExport.Click += ExportSettings;
+            var mnuPxeSettings = new ToolStripMenuItem("🌐 PXE 부팅 서버 설정...");
+            mnuPxeSettings.Click += (s, e) => OpenPxeSettingsDialog();
 
-            var btnImport = CreateButton("📥 설정 복원", Color.FromArgb(71, 85, 105));
-            btnImport.Click += ImportSettings;
+            var mnuColumnSettings = new ToolStripMenuItem("⚙ 테이블 열 표시 / 숨김 설정...");
+            mnuColumnSettings.Click += (s, e) => ShowColumnSettingsDialog();
 
-            _btnPxeServer = CreateButton("🌐 PXE 서버: OFF", Color.FromArgb(51, 65, 85));
-            _btnPxeServer.Click += (s, e) => OpenPxeSettingsDialog();
+            var mnuExport = new ToolStripMenuItem("📤 전체 설정 백업 (JSON 내보내기)...");
+            mnuExport.Click += ExportSettings;
+
+            var mnuImport = new ToolStripMenuItem("📥 전체 설정 복원 (JSON 가져오기)...");
+            mnuImport.Click += ImportSettings;
+
+            _settingsDropdownMenu.Items.Add(mnuRefreshSettings);
+            _settingsDropdownMenu.Items.Add(new ToolStripSeparator());
+            _settingsDropdownMenu.Items.Add(mnuOpenPolicies);
+            _settingsDropdownMenu.Items.Add(mnuOpenImageRules);
+            _settingsDropdownMenu.Items.Add(mnuPxeSettings);
+            _settingsDropdownMenu.Items.Add(mnuColumnSettings);
+            _settingsDropdownMenu.Items.Add(new ToolStripSeparator());
+            _settingsDropdownMenu.Items.Add(mnuExport);
+            _settingsDropdownMenu.Items.Add(mnuImport);
+
+            _btnSettingsDropdown = CreateButton("⚙️ 정책 · 환경 설정 ▾", Color.FromArgb(51, 65, 85));
+            _btnSettingsDropdown.Click += (s, e) =>
+            {
+                _settingsDropdownMenu.Show(_btnSettingsDropdown, new Point(0, _btnSettingsDropdown.Height + 2));
+            };
 
             pnlTopButtons.Controls.Add(_btnPxeServer);
             pnlTopButtons.Controls.Add(_btnAutoApproveToggle);
-            pnlTopButtons.Controls.Add(_btnBatchApprove);
-            pnlTopButtons.Controls.Add(_btnBatchStop);
-            pnlTopButtons.Controls.Add(_btnRefreshSettings);
-            pnlTopButtons.Controls.Add(btnSelectImage);
-            pnlTopButtons.Controls.Add(btnOpenPolicies);
-            pnlTopButtons.Controls.Add(btnOpenImageRules);
-            pnlTopButtons.Controls.Add(btnExport);
-            pnlTopButtons.Controls.Add(btnImport);
+            pnlTopButtons.Controls.Add(_btnDeployDropdown);
+            pnlTopButtons.Controls.Add(_btnSettingsDropdown);
 
             pnlHeader.Controls.Add(pnlTopButtons);
 
@@ -816,9 +874,56 @@ namespace MultiDeployOS.Master.Forms
                 Cursor = Cursors.Hand,
                 AutoSize = true,
                 Height = 32,
-                Padding = new Padding(8, 0, 8, 0),
-                Margin = new Padding(0, 0, 4, 0)
+                Padding = new Padding(10, 0, 10, 0),
+                Margin = new Padding(0, 0, 6, 0)
             };
+        }
+
+        private ContextMenuStrip CreateStyledDropdownMenu()
+        {
+            var menu = new ContextMenuStrip
+            {
+                BackColor = Color.FromArgb(30, 41, 59),
+                ForeColor = Color.White,
+                Font = new Font("맑은 고딕", 9.5f),
+                ShowImageMargin = false,
+                Padding = new Padding(2, 4, 2, 4),
+                Renderer = new DarkDropdownRenderer()
+            };
+            return menu;
+        }
+
+        private sealed class DarkDropdownRenderer : ToolStripProfessionalRenderer
+        {
+            public DarkDropdownRenderer() : base(new DarkDropdownColorTable()) { }
+
+            protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+            {
+                e.TextColor = e.Item.Enabled ? Color.White : Color.FromArgb(100, 116, 139);
+                base.OnRenderItemText(e);
+            }
+
+            protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
+            {
+                int y = e.Item.Height / 2;
+                using var pen = new Pen(Color.FromArgb(51, 65, 85), 1);
+                e.Graphics.DrawLine(pen, 6, y, e.Item.Width - 6, y);
+            }
+        }
+
+        private sealed class DarkDropdownColorTable : ProfessionalColorTable
+        {
+            public override Color ToolStripDropDownBackground => Color.FromArgb(30, 41, 59);
+            public override Color MenuBorder => Color.FromArgb(71, 85, 105);
+            public override Color MenuItemSelected => Color.FromArgb(14, 165, 233);
+            public override Color MenuItemBorder => Color.FromArgb(56, 189, 248);
+            public override Color MenuItemSelectedGradientBegin => Color.FromArgb(2, 132, 199);
+            public override Color MenuItemSelectedGradientEnd => Color.FromArgb(2, 132, 199);
+            public override Color MenuItemPressedGradientBegin => Color.FromArgb(15, 23, 42);
+            public override Color MenuItemPressedGradientEnd => Color.FromArgb(15, 23, 42);
+            public override Color ImageMarginGradientBegin => Color.FromArgb(30, 41, 59);
+            public override Color ImageMarginGradientMiddle => Color.FromArgb(30, 41, 59);
+            public override Color ImageMarginGradientEnd => Color.FromArgb(30, 41, 59);
         }
 
         private void InitLiveGrid(Control parent)
