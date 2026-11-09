@@ -127,11 +127,27 @@ namespace MultiDeployOS.Master.Services
                             session.Disks = JsonSerializer.Deserialize<List<DiskInfo>>(disksProp.GetRawText()) ?? new();
                     }
 
+                    session.IsStopping = false;
                     session.Status = "READY";
                     ClientRegistered?.Invoke(session);
                 }
+                else if (type == "CLIENT_STOPPED")
+                {
+                    session.IsStopping = false;
+                    session.Status = "READY";
+                    session.Result = null;
+                    session.Progress = new ProgressInfo
+                    {
+                        Percent = 0,
+                        Step = "배포 중지됨 (설정 재작성 및 재배포 가능)",
+                        SpeedMbps = 0,
+                        ElapsedSeconds = 0
+                    };
+                    ClientProgressUpdated?.Invoke(session);
+                }
                 else if (type == "CLIENT_PROGRESS")
                 {
+                    if (session.IsStopping) return;
                     session.Status = "IMAGING";
                     if (root.TryGetProperty("payload", out var progPayload))
                     {
@@ -145,6 +161,22 @@ namespace MultiDeployOS.Master.Services
                 }
                 else if (type == "CLIENT_RESULT")
                 {
+                    if (session.IsStopping)
+                    {
+                        session.IsStopping = false;
+                        session.Status = "READY";
+                        session.Result = null;
+                        session.Progress = new ProgressInfo
+                        {
+                            Percent = 0,
+                            Step = "배포 중지됨 (설정 재작성 및 재배포 가능)",
+                            SpeedMbps = 0,
+                            ElapsedSeconds = 0
+                        };
+                        ClientProgressUpdated?.Invoke(session);
+                        return;
+                    }
+
                     ResultInfo result;
                     if (root.TryGetProperty("payload", out var resPayload))
                     {
@@ -165,10 +197,60 @@ namespace MultiDeployOS.Master.Services
             }
         }
 
+        public bool StopClient(ClientSession session)
+        {
+            session.IsStopping = true;
+            session.Status = "READY";
+            session.Result = null;
+            session.Progress = new ProgressInfo
+            {
+                Percent = 0,
+                Step = "배포 중지됨 (설정 재작성 및 재배포 가능)",
+                SpeedMbps = 0,
+                ElapsedSeconds = 0
+            };
+
+            if (session.SocketClient == null || !session.SocketClient.Connected)
+            {
+                ClientProgressUpdated?.Invoke(session);
+                return false;
+            }
+
+            try
+            {
+                var stopPayload = new
+                {
+                    type = "MASTER_STOP_DEPLOY",
+                    payload = new
+                    {
+                        sessionId = session.SessionId
+                    }
+                };
+
+                string json = JsonSerializer.Serialize(stopPayload) + "\n";
+                byte[] bytes = Encoding.UTF8.GetBytes(json);
+
+                var stream = session.SocketClient.GetStream();
+                stream.Write(bytes, 0, bytes.Length);
+                stream.Flush();
+
+                ClientProgressUpdated?.Invoke(session);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[-] 배포 중지 메시지 전송 오류 [{session.SessionId}]: {ex.Message}");
+                ClientProgressUpdated?.Invoke(session);
+                return false;
+            }
+        }
+
         public bool ApproveClient(ClientSession session, PartitionPolicy policy, ImageRule imageRule, ServerConfig serverConfig)
         {
             if (session.SocketClient == null || !session.SocketClient.Connected) return false;
             if (session.Status == "IMAGING") return false;
+
+            session.IsStopping = false;
 
             try
             {

@@ -122,8 +122,10 @@ namespace MultiDeployOS.Master.Models
         public List<DiskInfo> Disks { get; set; } = new();
 
         public PartitionPolicy? MatchedPolicy { get; set; }
+        public bool IsCustomPolicySelected { get; set; } = false;
         public ImageRule? MatchedImage { get; set; }
         public string? ResolvedImageFileName { get; set; }
+        public bool IsStopping { get; set; } = false;
 
         // 별도(수동) 이미지 선택 관련 속성
         public bool IsCustomImageSelected { get; set; } = false;

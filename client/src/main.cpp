@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <thread>
+#include <atomic>
 #include <chrono>
 #include <windows.h>
 #include "hw_scanner.h"
@@ -444,11 +445,62 @@ int main(int argc, char* argv[]) {
 
             std::cout << "[*] 마스터 명령 수신 (Command Received): " << incomingJson.substr(0, 80) << "...\n";
 
+            // "MASTER_STOP_DEPLOY" 대기 상태에서 수신 시 즉시 READY 응답
+            if (incomingJson.find("MASTER_STOP_DEPLOY") != std::string::npos) {
+                SimpleJson::JsonValue stopAck = SimpleJson::JsonValue::CreateObject();
+                stopAck.Set("type", "CLIENT_STOPPED");
+                stopAck.Set("status", "READY");
+                client.SendJsonMessage(stopAck.ToString());
+                std::cout << "[*] 마스터 배포 중지 확인 -> 승인 대기(READY) 상태 유지 중...\n";
+                continue;
+            }
+
             // "MASTER_APPROVE_DEPLOY" 감지 시 배포 시퀀스 시작
             if (incomingJson.find("MASTER_APPROVE_DEPLOY") != std::string::npos) {
                 std::cout << "\n=========================================================\n";
                 std::cout << "[*] 마스터 승인 확인! 이미지 더빙 작업을 시작합니다. (Deploy Approved! Starting...)\n";
                 std::cout << "=========================================================\n";
+
+                std::atomic<bool> stopRequested{ false };
+                std::atomic<bool> monitorActive{ true };
+                std::thread stopMonitorThread([&]() {
+                    while (monitorActive.load() && client.IsConnected()) {
+                        std::string ctrlMsg;
+                        if (client.ReadMessage(ctrlMsg, 200)) {
+                            if (ctrlMsg.find("MASTER_STOP_DEPLOY") != std::string::npos) {
+                                stopRequested.store(true);
+                                std::cout << "\n[!] 마스터 서버로부터 배포 중지(MASTER_STOP_DEPLOY) 명령 수신! 진행 중인 작업을 즉시 중단합니다...\n";
+                                system("taskkill /F /IM dism.exe /T >nul 2>&1");
+                                system("taskkill /F /IM DismHost.exe /T >nul 2>&1");
+                                system("taskkill /F /IM diskpart.exe /T >nul 2>&1");
+                                system("taskkill /F /IM bcdboot.exe /T >nul 2>&1");
+                                break;
+                            }
+                        }
+                    }
+                });
+
+                auto stopMonitorJoin = [&]() {
+                    monitorActive.store(false);
+                    if (stopMonitorThread.joinable()) {
+                        stopMonitorThread.join();
+                    }
+                };
+
+                auto checkAndHandleStop = [&]() -> bool {
+                    if (!stopRequested.load()) return false;
+                    stopMonitorJoin();
+                    system("reg.exe unload HKLM\\OFFLINE_SOFTWARE >nul 2>&1");
+                    SimpleJson::JsonValue stopAck = SimpleJson::JsonValue::CreateObject();
+                    stopAck.Set("type", "CLIENT_STOPPED");
+                    stopAck.Set("status", "READY");
+                    client.SendJsonMessage(stopAck.ToString());
+                    std::cout << "\n=========================================================\n";
+                    std::cout << "[!] 배포 작업이 사용자에 의해 중지되었습니다.\n";
+                    std::cout << "[*] 승인 대기(READY) 모드로 복귀합니다. 설정 변경 후 새로 배포할 수 있습니다.\n";
+                    std::cout << "=========================================================\n\n";
+                    return true;
+                };
 
                 // 마스터가 전달한 배포 메타데이터 동적 추출
                 std::string ruleName = ExtractJsonString(incomingJson, "ruleName");
@@ -481,6 +533,8 @@ int main(int argc, char* argv[]) {
                 std::cout << "  - 적용 매칭 규칙 : " << (ruleName.empty() ? "기본 자동 선택 규칙" : ruleName) << "\n";
                 std::cout << "  - 대상 WIM 파일  : " << (imageName.empty() ? "install.wim" : imageName) << " (Index: " << imageIndex << ")\n\n";
 
+                if (checkAndHandleStop()) continue;
+
                 // (1) 파티션 단계
                 std::cout << "[단계 1/3] 타깃 디스크 파티셔닝 수행 중... (Step 1/3: Partitioning Disk...)\n";
                 // [진행 보고: 3%] 파티셔닝 시작 즉시 보고하여 마스터 UI의 '작업 준비 중' 정체 해소
@@ -510,7 +564,9 @@ int main(int argc, char* argv[]) {
 
                 int targetDiskIdx = ExtractJsonInt(incomingJson, "targetDiskIndex", 0);
                 auto partRes = PartitionEngine::ExecutePartitionPlan(targetDiskIdx, diskpartCmds);
+                if (checkAndHandleStop()) continue;
                 if (!partRes.success) {
+                    stopMonitorJoin();
                     std::cerr << "[-] 파티셔닝 실패 (Partition Failed): " << partRes.errorMessage << "\n";
                     // 실패 보고
                     SimpleJson::JsonValue failMsg = SimpleJson::JsonValue::CreateObject();
@@ -543,11 +599,14 @@ int main(int argc, char* argv[]) {
                 std::cout << "  * 사후 자동화(프로비저너): [" << (provisionerEnabled ? "활성 (ENABLE)" : "비활성 (DISABLE)") << "]\n";
                 std::cout << "  * 안내: 이 배너가 보이면 boot.wim에 최신 에이전트가 정상 주입된 것입니다!\n";
                 std::cout << "======================================================================\n";
-                for (int waitSec = 5; waitSec > 0; --waitSec) {
-                    std::cout << "[*] 더빙 단계 진입 대기 중... (" << waitSec << "초)   \r" << std::flush;
-                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                for (int waitTick = 50; waitTick > 0 && !stopRequested.load(); --waitTick) {
+                    if (waitTick % 10 == 0) {
+                        std::cout << "[*] 더빙 단계 진입 대기 중... (" << (waitTick / 10) << "초)   \r" << std::flush;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 }
                 std::cout << "\n\n";
+                if (checkAndHandleStop()) continue;
 
                 // (2) 이미지 적용 (더빙)
                 // 실제 WIM 파일 유효 경로 결정:
@@ -660,6 +719,7 @@ int main(int argc, char* argv[]) {
                 dParams.runBcdBoot = true;
 
                 DeployEngine::DeployResult deployRes = DeployEngine::ApplyWimImage(dParams, [&](const DeployEngine::DeployProgress& prog) {
+                    if (stopRequested.load()) return;
                     std::cout << "\r[*] " << prog.step << ": " << (int)prog.percent << "% (ETA: " << prog.remainingSeconds << "s)   " << std::flush;
 
                     SimpleJson::JsonValue p = SimpleJson::JsonValue::CreateObject();
@@ -675,6 +735,7 @@ int main(int argc, char* argv[]) {
                 });
 
                 std::cout << "\n";
+                if (checkAndHandleStop()) continue;
 
                 // (3) 결과 보고
                 SimpleJson::JsonValue finalResult = SimpleJson::JsonValue::CreateObject();
@@ -847,6 +908,8 @@ int main(int argc, char* argv[]) {
                         std::cout << "[+] 사후 무인 프로비저너 설정 완료! CJAutoProvisioner.exe 단일 파일로 윈도우 첫 부팅 시 1회 완벽 실행됩니다.\n";
                         std::cout << "---------------------------------------------------------\n";
                     }
+                    if (checkAndHandleStop()) continue;
+                    stopMonitorJoin();
                     std::cout << "[+] [성공] OS 이미지 더빙 및 부트로더 구성 완료! (SUCCESS: Image Applied! Time: " << deployRes.durationSeconds << "s)\n";
                     finalResult.Set("status", "SUCCESS");
                     finalResult.Set("totalDurationSeconds", deployRes.durationSeconds);
@@ -856,6 +919,8 @@ int main(int argc, char* argv[]) {
                     deployedSuccessfully = true;
                     break;
                 } else {
+                    if (checkAndHandleStop()) continue;
+                    stopMonitorJoin();
                     std::cerr << "[-] [실패] 이미지 배포 실패 (FAILED: Deploy Failed): " << deployRes.errorMessage << "\n";
                     finalResult.Set("status", "FAILED");
                     finalResult.Set("totalDurationSeconds", deployRes.durationSeconds);
